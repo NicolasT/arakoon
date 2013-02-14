@@ -92,6 +92,8 @@ object(self: #Arakoon_client.client)
 
   method who_master () = Common.who_master conn
 
+  method reload_some_cfg () = Common.reload_some_cfg conn
+
   method expect_progress_possible () =
     request  oc (fun buf -> expect_progress_possible_to buf) >>= fun () ->
     response ic Llio.input_bool

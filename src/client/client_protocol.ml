@@ -133,7 +133,7 @@ let one_command (ic,oc) (backend:Backend.backend) =
     | PING ->
       begin
         Llio.input_string ic >>= fun client_id ->
-	    Llio.input_string ic >>= fun cluster_id ->
+	Llio.input_string ic >>= fun cluster_id ->
         backend # hello client_id cluster_id >>= fun (rc,msg) ->
         response_rc_string oc rc msg
       end
@@ -148,12 +148,12 @@ let one_command (ic,oc) (backend:Backend.backend) =
       end
     | GET ->
       begin
-	    Llio.input_bool   ic >>= fun allow_dirty ->
+	Llio.input_bool   ic >>= fun allow_dirty ->
         Llio.input_string ic >>= fun  key ->
-	    Lwt.catch
-	      (fun () -> backend # get ~allow_dirty key >>= fun value ->
+	Lwt.catch
+	  (fun () -> backend # get ~allow_dirty key >>= fun value ->
 	        response_rc_string oc 0l value)
-	      (handle_exception oc)
+	  (handle_exception oc)
       end
     | ASSERT ->
       begin
@@ -182,6 +182,14 @@ let one_command (ic,oc) (backend:Backend.backend) =
       Llio.input_string ic >>= fun value ->
 	  Lwt.catch
 	    (fun () -> backend # set key value >>= fun () ->
+	      response_ok_unit oc
+	    )
+	    (handle_exception oc)
+	end
+    | RELOAD_SOME_CFG ->
+	begin
+          Lwt.catch
+	    (fun () -> backend # reload_some_cfg () >>= fun () ->
 	      response_ok_unit oc
 	    )
 	    (handle_exception oc)

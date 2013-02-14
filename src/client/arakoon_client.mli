@@ -91,6 +91,8 @@ method rev_range_entries:
 
   method who_master: unit -> string option Lwt.t
 
+  method reload_some_cfg: unit ->unit Lwt.t
+    
   method expect_progress_possible: unit -> bool Lwt.t
 
   method statistics: unit -> Statistics.t Lwt.t

@@ -191,7 +191,13 @@ let _assert_exists _pf bdb key =
 	try let _ = B.get bdb pk in true
 	with Not_found -> false
 
-
+let _reload_some_cfg () =
+  Lwt_log.debug "reload_some_cfg local store" >>= fun () ->
+  let signal_to_itself number = Unix.kill (Unix.getpid ()) number in
+  signal_to_itself 10;
+  Lwt.return ()
+  
+    
 let copy_store old_location new_location overwrite =
   File_system.exists old_location >>= fun src_exists ->
   if not src_exists
@@ -280,8 +286,11 @@ let rec _sequence _pf bdb interval updates =
 	      | false ->
 	        raise (Arakoon_exc.Exception(Arakoon_exc.E_ASSERTION_FAILED,k))
       end
+    | Update.Reload_some_cfg() -> 
+        Lwt_log.debug_f "local:store :: reload_some_cfg";
+        let _ = _reload_some_cfg () in ()
     | Update.UserFunction(name,po) ->
-      let _ = _user_function bdb interval name po in ()
+        let _ = _user_function bdb interval name po in ()
     | Update.MasterSet (m,ls) -> _set_master bdb m ls
     | Update.Sequence us 
     | Update.SyncedSequence us -> _sequence _pf bdb interval us
@@ -566,6 +575,8 @@ object(self: #store)
   method aSSert_exists ?(_pf=__prefix) key =
     _with_tx db  
       (fun db -> let r = _assert_exists _pf db key in Lwt.return r)
+
+  method reload_some_cfg () = _reload_some_cfg ()
 
   method user_function name (po:string option) =
     Lwt_log.debug_f "user_function :%s" name >>= fun () ->

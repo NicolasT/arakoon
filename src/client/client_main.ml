@@ -94,6 +94,7 @@ let set cfg_name key value =
   let t () = with_master_client cfg_name (fun client -> client # set key value)
   in run t
 
+
 let get cfg_name key =
   let f (client:Arakoon_client.client) =
     client # get key >>= fun value ->
@@ -170,6 +171,9 @@ let who_master cfg_name () =
   in
   run t 
 
+let reload_some_cfg cfg_name () =
+  let t () = with_master_client cfg_name (fun client -> client # reload_some_cfg () )
+  in run t
 
 let node_version node_name cfg_name = 
   let cluster_cfg = read_config cfg_name in

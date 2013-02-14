@@ -66,7 +66,7 @@ class type store = object
   method set_master: string -> int64 -> unit Lwt.t
   method set_master_no_inc: string -> int64 -> unit Lwt.t
   method who_master: unit -> (string*int64) option
-
+  method reload_some_cfg: unit -> unit Lwt.t
   (** last value on which there is consensus.
       For an empty store, This is None
   *)
@@ -127,6 +127,8 @@ let _insert_update (store:store) (update:Update.t) =
   match update with
     | Update.Set(key,value) ->
         with_error key (fun () -> store # set key value)
+    | Update.Reload_some_cfg() ->
+        with_error "Reload_some_cfg" (fun () -> store # reload_some_cfg ())
     | Update.MasterSet (m, lease) ->
         with_error "Not_found" (fun () -> store # set_master m lease)
     | Update.Delete(key) ->

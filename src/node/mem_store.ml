@@ -132,6 +132,12 @@ object (self: #store)
     let r = (StringMap.mem key kv)
     in Lwt.return r
 
+  method reload_some_cfg () =
+    Lwt_log.debug "reload_some_cfg mem_store" >>= fun () ->
+    let signal_to_itself number = Unix.kill (Unix.getpid ()) number in
+    signal_to_itself 10;
+    Lwt.return ()
+
   method who_master () = master
 
   method private delete_no_incr ?(_pf=__prefix) key =
@@ -197,6 +203,9 @@ object (self: #store)
 		  Arakoon_exc.Exception(Arakoon_exc.E_ASSERTION_FAILED, k) in
 		Lwt.fail ex
 	  end
+	| Update.Reload_some_cfg() ->
+            Lwt_log.debug_f "mem_store :: reload_some_cfg" >>= fun () ->
+	    self # reload_some_cfg ()
 	| _ -> Llio.lwt_failfmt "Sequence does not support %s" u_s
     in
     let old_kv = kv in

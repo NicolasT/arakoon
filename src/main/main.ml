@@ -48,6 +48,7 @@ type local_action =
   | DELETE
   | DELETE_PREFIX
   | WHO_MASTER
+  | RELOAD_SOME_CFG
   | EXPECT_PROGRESS_POSSIBLE
   | STATISTICS
   | PREFIX
@@ -135,9 +136,6 @@ let dump_tlog filename ~values=
     end
   in
   Lwt_main.run t
-
-
-
 
 
 let make_tlog tlog_name (i:int) =
@@ -294,6 +292,7 @@ let main () =
     ("--get", Arg.Tuple [set_laction GET;
 			             Arg.Set_string key
 			            ],"<key> : arakoon[<key>]");
+    ("--reload-some-cfg", Arg.Tuple[set_laction RELOAD_SOME_CFG;], "reload log_level for the node");
     ("--delete", Arg.Tuple[set_laction DELETE;
 			               Arg.Set_string key;
 			              ], "<key> : delete arakoon[<key>]");
@@ -412,6 +411,7 @@ let main () =
       !n_clients
     | DELETE -> Client_main.delete !config_file !key
     | WHO_MASTER -> Client_main.who_master !config_file ()
+    | RELOAD_SOME_CFG -> Client_main.reload_some_cfg !config_file()
     | EXPECT_PROGRESS_POSSIBLE -> Client_main.expect_progress_possible !config_file
     | STATISTICS -> Client_main.statistics !config_file
     | Collapse_remote -> Collapser_main.collapse_remote

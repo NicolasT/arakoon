@@ -45,6 +45,7 @@ type client_command =
   | GET
   | ASSERT
   | ASSERTEXISTS
+  | RELOAD_SOME_CFG
   | SET
   | DELETE
   | RANGE
@@ -116,6 +117,7 @@ let code2int = [
   DELETE_PREFIX           , 0x27l;
   VERSION                 , 0x28l;
   ASSERTEXISTS            , 0x29l;
+  RELOAD_SOME_CFG         , 0x30l;
 ]
 
 let int2code =
@@ -201,6 +203,9 @@ let set_to buffer key value =
   command_to buffer SET;
   Llio.string_to buffer key;
   Llio.string_to buffer value
+
+let reload_some_cfg_to buffer =
+  command_to buffer RELOAD_SOME_CFG
 
 let confirm_to buffer key value =
   command_to buffer CONFIRM;
@@ -296,6 +301,10 @@ let who_master (ic,oc) =
 
 let set (ic,oc) key value =
   request  oc (fun buf -> set_to buf key value) >>= fun () ->
+  response ic nothing
+
+let reload_some_cfg (ic,oc) =
+  request  oc (fun buf -> reload_some_cfg_to buf) >>= fun () ->
   response ic nothing
 
 let get (ic,oc) ~allow_dirty key =

@@ -237,8 +237,11 @@ object(self: #backend)
     let update_sets (update_result:Store.update_result) = Statistics.new_set _stats key value start in
     _update_rendezvous self update update_sets push_update ~so_post:_mute_so
 
-
-
+  method reload_some_cfg () =
+    log_o self "Reload_some_cfg" >>= fun () ->
+    let update = Update.Reload_some_cfg() in
+    _update_rendezvous self update no_stats push_update ~so_post:_mute_so
+      
   method confirm key value =
     log_o self "confirm %S" key >>= fun () ->
     let () = assert_value_size value in

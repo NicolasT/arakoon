@@ -30,6 +30,7 @@ class type backend = object
   method exists: allow_dirty:bool -> string -> bool Lwt.t
   method get: allow_dirty:bool -> string -> string Lwt.t
   method set: string -> string -> unit Lwt.t
+  method reload_some_cfg: unit -> unit Lwt.t
   method confirm: string -> string -> unit Lwt.t
   method aSSert: allow_dirty: bool -> string -> string option -> unit Lwt.t
   method aSSert_exists: allow_dirty: bool -> string -> unit Lwt.t

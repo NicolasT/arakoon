@@ -41,6 +41,7 @@ module Update = struct
     | AdminSet of string * string option
     | SyncedSequence of t list 
     | DeletePrefix of string
+    | Reload_some_cfg of unit
 
   let make_master_set me maybe_lease =
     match maybe_lease with
@@ -82,6 +83,7 @@ module Update = struct
       | Nop -> "NOP"
       | Assert (key,vo)        -> Printf.sprintf "Assert          ;%S;%i" key (_size_of vo)
       | Assert_exists (key)    -> Printf.sprintf "Assert_exists   ;%S"    key
+      | Reload_some_cfg ()     -> Printf.sprintf "Reload_some_cfg"
       | UserFunction (name,param) ->
         let ps = _size_of param in
         Printf.sprintf "UserFunction;%s;%i" name ps
@@ -151,7 +153,8 @@ module Update = struct
       | Assert_exists (k) ->
 	    Llio.int_to b 15;
 	    Llio.string_to b k
-
+      | Reload_some_cfg (k) ->
+	    Llio.int_to b 16
 
   let rec from_buffer b pos =
     let kind, pos1 = Llio.int_from b pos in
@@ -168,58 +171,60 @@ module Update = struct
     in
     match kind with
       | 1 -> 
-        let k,pos2 = Llio.string_from b pos1 in
-        let v,pos3 = Llio.string_from b pos2 in
-        Set(k,v), pos3
+          let k,pos2 = Llio.string_from b pos1 in
+          let v,pos3 = Llio.string_from b pos2 in
+          Set(k,v), pos3
       | 2 -> 
         let k, pos2 = Llio.string_from b pos1 in
-		    Delete k, pos2
+	Delete k, pos2
       | 3 ->
-        let k, pos2 = Llio.string_from b pos1 in
-        let e, pos3 = Llio.string_option_from b pos2 in
-        let w, pos4 = Llio.string_option_from b pos3 in
-        TestAndSet(k,e,w), pos4
+          let k, pos2 = Llio.string_from b pos1 in
+          let e, pos3 = Llio.string_option_from b pos2 in
+          let w, pos4 = Llio.string_option_from b pos3 in
+          TestAndSet(k,e,w), pos4
       | 4 -> 
-        let m,pos2 = Llio.string_from b pos1 in
-        let i,pos3 = Llio.int64_from b pos2 in
-        MasterSet (m,i), pos3
+          let m,pos2 = Llio.string_from b pos1 in
+          let i,pos3 = Llio.int64_from b pos2 in
+          MasterSet (m,i), pos3
       | 5 ->
-        let us, pos2 = _us_from b pos1 in
-        Sequence us, pos2
+          let us, pos2 = _us_from b pos1 in
+          Sequence us, pos2
       | 6 -> Nop, pos1
       | 7 ->
-	    let n,  pos2 = Llio.string_from b pos1 in
-	    let po, pos3 = Llio.string_option_from b pos2 in
-	    let r = UserFunction(n,po) in
-	    r, pos3
+	  let n,  pos2 = Llio.string_from b pos1 in
+	  let po, pos3 = Llio.string_option_from b pos2 in
+	  let r = UserFunction(n,po) in
+	  r, pos3
       | 8 ->
-	    let k, pos2 = Llio.string_from b pos1 in
-	    let vo,pos3 = Llio.string_option_from b pos2 in
+	  let k, pos2 = Llio.string_from b pos1 in
+	  let vo,pos3 = Llio.string_option_from b pos2 in
 	    Assert (k,vo) , pos3
       | 9 ->
-        let k,pos2 = Llio.string_from b pos1 in
-        let vo, pos3 = Llio.string_option_from b pos2 in
-        AdminSet(k,vo), pos3
+          let k,pos2 = Llio.string_from b pos1 in
+          let vo, pos3 = Llio.string_option_from b pos2 in
+          AdminSet(k,vo), pos3
       | 10 -> 
-	    let interval,pos2 = Interval.interval_from b pos1 in
-	    SetInterval interval, pos2
+	  let interval,pos2 = Interval.interval_from b pos1 in
+	  SetInterval interval, pos2
       | 11 ->
-	    let r,pos2 = Routing.routing_from b pos1 in
-	    SetRouting r, pos2
+	  let r,pos2 = Routing.routing_from b pos1 in
+	  SetRouting r, pos2
       | 12 ->
-        let l, pos2 = Llio.string_from b pos1 in
-        let s, pos3 = Llio.string_from b pos2 in
-        let r, pos4 = Llio.string_from b pos3 in
-        SetRoutingDelta (l, s, r), pos4
+          let l, pos2 = Llio.string_from b pos1 in
+          let s, pos3 = Llio.string_from b pos2 in
+          let r, pos4 = Llio.string_from b pos3 in
+          SetRoutingDelta (l, s, r), pos4
       | 13 ->
-        let us, pos2 = _us_from b pos1 in
-        SyncedSequence us, pos2
+          let us, pos2 = _us_from b pos1 in
+          SyncedSequence us, pos2
       | 14 ->
-        let p, pos2 = Llio.string_from b pos1 in
-        DeletePrefix p, pos2
+          let p, pos2 = Llio.string_from b pos1 in
+          DeletePrefix p, pos2
       | 15 ->
-	    let k, pos2 = Llio.string_from b pos1 in
-	    Assert_exists (k) , pos2
+	  let k, pos2 = Llio.string_from b pos1 in
+	  Assert_exists (k) , pos2
+      | 16 ->
+	  Reload_some_cfg () , 0
       | _ -> failwith (Printf.sprintf "%i:not an update" kind)
 
   let is_synced = function

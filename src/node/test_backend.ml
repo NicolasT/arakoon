@@ -109,7 +109,14 @@ class test_backend my_name = object(self:#backend)
   method set (key:string) (value:string) =
     _kv <- StringMap.add key value _kv;
     Lwt.return ()
-
+      
+  method reload_some_cfg () =
+    Lwt_log.info "reload some cfg " >>= fun () ->
+    Lwt_log.debug "reload some cfg " >>= fun () ->
+    let signal_to_itself number = Unix.kill (Unix.getpid ()) number in 
+    signal_to_itself 10;
+    Lwt.return ()
+      
   method confirm (key:string) (value:string) =
     if StringMap.mem key _kv && StringMap.find key _kv = value then Lwt.return ()
     else self # set key value
