@@ -32,13 +32,18 @@ let log ?(me="???") x =
   Printf.ksprintf k x
 
 
+let explain x = 
+  let k s = ELog (fun b -> Buffer.add_string b s) in
+  Printf.ksprintf k x
+
+
+
 let quorum_function = Quorum.quorum_function
 
 exception ConflictException of (Value.t * Value.t list)
 exception TooFewPromises of (float * int * string list)
 
 exception PaxosFatal of string
-(* timeout and to_receive, and who got through *)
 
 let paxos_fatal me fmt =
   let k x =
@@ -172,12 +177,6 @@ let make me is_learner others send receive get_value
     cluster_id = cluster_id;
     quiesced = quiesced;
   }
-
-let mcast constants msg =
-  let send = constants.send in
-  let me = constants.me in
-  let others = constants.others in
-  Lwt_list.iter_p (fun o -> send msg me o) others
 
 
 let update_n constants n =

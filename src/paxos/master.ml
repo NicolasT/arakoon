@@ -30,11 +30,11 @@ open Update
 (* a (possibly potential) master has found consensus on a value
    first potentially finish of a client request and then on to
    being a stable master *)
+
 let master_consensus constants ((finished_funs : master_option),v,n,i) () =
   let gen_e = EConsensus(finished_funs, v,n,i) in
-  let log_e = ELog (fun () ->
-    Printf.sprintf "on_consensus for : %s => %i finished_fs " 
-      (Value.value2s v) (List.length finished_funs) )
+  let log_e = explain "on_consensus for : %s => %i finished_fs " 
+    (Value.value2s v) (List.length finished_funs)
   in
   let state = (v,n,(Sn.succ i)) in
   Fsm.return ~sides:[gen_e;log_e] (Stable_master state)
@@ -46,17 +46,14 @@ let stable_master constants ((v',n,new_i) as current_state) = function
       let me = constants.me in
       if n' < n 
       then
-	    begin
-          let log_e = ELog (fun () ->
-	        Printf.sprintf "stable_master: ignoring old lease_expired with n:%s < n:%s" 
-	          (Sn.string_of n') (Sn.string_of n))
-          in
-	      Fsm.return ~sides:[log_e] (Stable_master current_state)
-	    end
+        let log_e = explain "stable_master: ignoring old lease_expired with n:%s < n:%s" 
+	      (Sn.string_of n') (Sn.string_of n)
+        in
+	    Fsm.return ~sides:[log_e] (Stable_master current_state)
       else
 	    begin
 	      let extend () = 
-            let log_e = ELog (fun () -> "stable_master: half-lease_expired: update lease." ) in
+            let log_e = explain "stable_master: half-lease_expired: update lease."  in
             let v = Value.create_master_value (me,0L) in
             let ff = fun _ -> Lwt.return () in
 		    (* TODO: we need election timeout as well here *)
@@ -66,15 +63,13 @@ let stable_master constants ((v',n,new_i) as current_state) = function
 	        | Preferred ps when not (List.mem me ps) ->
                   let lws = List.map (fun name -> (name, constants.last_witnessed name)) ps in
                   (* Multiply with -1 to get a reverse-sorted list *)
-                  let slws = List.fast_sort (fun (_, a) (_, b) -> (-1) * compare a b) lws in
+                  let slws = List.fast_sort (fun (_, b) (_, a) -> compare a b) lws in
                   let (p, p_i) = List.hd slws in
 	          let diff = Sn.diff new_i p_i in
 	          if diff < (Sn.of_int 5) 
               then
-		        begin
-                  let log_e = ELog (fun () -> Printf.sprintf "stable_master: handover to %s" p) in
-		          Fsm.return ~sides:[log_e] (Stable_master current_state)
-		        end
+                let log_e = explain "stable_master: handover to %s" p in
+		        Fsm.return ~sides:[log_e] (Stable_master current_state)
 	          else
 		        extend () 
 	        | _ -> extend()
@@ -96,13 +91,17 @@ let stable_master constants ((v',n,new_i) as current_state) = function
 	          then
 		        begin
 		          let reply = Nak(n', (n,new_i)) in
-		          constants.send reply me source >>= fun () ->
+                  let send_e = ESend (reply, source) in
+                  let sides = [send_e] in
+                  let state' = 
 		          if n' > 0L 
 		          then
 		            let new_n = update_n constants n' in
-		            Fsm.return (Forced_master_suggest (new_n,new_i))
+		            Forced_master_suggest (new_n,new_i)
 		          else
-		            Fsm.return (Stable_master current_state )
+		            Stable_master current_state
+                  in
+                  Fsm.return ~sides state'
 		        end
 	          else
 		        begin
@@ -128,18 +127,14 @@ let stable_master constants ((v',n,new_i) as current_state) = function
               Fsm.return (Stable_master current_state)
 	      | _ ->
 	          begin
-                let log_e = ELog (fun () -> 
-                  Printf.sprintf "stable_master received %S: dropping" (string_of msg)) 
-                in
+                let log_e = explain "stable_master received %S: dropping" (string_of msg) in
 	            Fsm.return ~sides:[log_e] (Stable_master current_state)
 	          end
       end
     | ElectionTimeout n' -> 
-        begin
-          let log_e = ELog (fun () ->
-            Printf.sprintf "ignoring election timeout (%s)" (Sn.string_of n') )
-          in          
-          Fsm.return ~sides:[log_e] (Stable_master current_state)
+      begin
+        let log_e = explain "ignoring election timeout (%s)" (Sn.string_of n') in          
+        Fsm.return ~sides:[log_e] (Stable_master current_state)
       end
     | Quiesce (sleep,awake) ->
       begin
@@ -163,17 +158,8 @@ let master_dictate constants (mo,v,n,i) () =
   let needed' = needed - 1 in
   let ballot = (needed' , [me] ) in
   
-  let log_e = 
-    ELog (fun () ->
-      Printf.sprintf "master_dictate n:%s i:%s needed:%d" 
-        (Sn.string_of n) (Sn.string_of i) needed' 
-    )
+  let log_e = explain "master_dictate n:%s i:%s needed:%d" 
+    (Sn.string_of n) (Sn.string_of i) needed' 
   in
-  let sides = 
-    [accept_e;
-     start_e;
-     mcast_e;
-     log_e;
-    ]
-  in
+  let sides = [accept_e;start_e;mcast_e;log_e] in
   Fsm.return ~sides (Accepteds_check_done (mo, n, i, ballot, v))

@@ -37,7 +37,7 @@ open Master_type
 let forced_master_suggest constants (n,i) () =
   let me = constants.me in
   let n' = update_n constants n in
-  mcast constants (Prepare (n',i)) >>= fun () ->
+  Act.multi_cast constants (Prepare (n',i)) >>= fun () ->
   start_election_timeout constants n >>= fun () ->
   log ~me "forced_master_suggest: suggesting n=%s" (Sn.string_of n') >>= fun () ->
   let tlog_coll = constants.tlog_coll in
@@ -74,7 +74,7 @@ let election_suggest constants (n,i,vo) () =
   in
   let df = float delay in
   Lwt.ignore_result 
-    (Lwt_unix.sleep df >>= fun () -> mcast constants (Prepare (n,i)));
+    (Lwt_unix.sleep df >>= fun () -> Act.multi_cast constants (Prepare (n,i)));
   let who_voted = [me] in
   let i_lim = Some (me,i) in
   let state = (n, i, who_voted, v_lims, i_lim) in
@@ -200,10 +200,10 @@ let promises_check_done constants state () =
       constants.on_accept (bv,n,i) >>= fun () ->
       start_lease_expiration_thread constants n (constants.lease_expiration / 2)  >>= fun () ->
       let msg = Accept(n,i,bv) in
-      mcast constants msg >>= fun () ->
+      let mcast_e = EMCast msg in
       let new_ballot = (needed-1 , [me] ) in
       let ff = fun _ -> Lwt.return () in
-      Fsm.return (Accepteds_check_done ([ff], n, i, new_ballot, bv))
+      Fsm.return ~sides:[mcast_e] (Accepteds_check_done ([ff], n, i, new_ballot, bv))
     end
   else (* bf < needed *)
     if nvoted < nnodes 
@@ -242,17 +242,12 @@ let wait_for_promises constants state event =
         in
 	    let who_voted_s = Log_extra.list2s (fun s -> s) who_voted in
 
-        let log_e0 = 
-          ELog(fun () ->
-            Printf.sprintf "wait_for_promises:n=%s i=%s who_voted = %s received %s from %s" 
-              (Sn.string_of n) (Sn.string_of i) who_voted_s 
-              (string_of msg) source
-          )
+        let log_e0 = explain "wait_for_promises:n=%s i=%s who_voted = %s received %s from %s" 
+          (Sn.string_of n) (Sn.string_of i) who_voted_s 
+          (string_of msg) source
         in
         let drop msg reason = 
-          let log_e = ELog(fun () ->
-            Printf.sprintf "dropping %s because: %s" (string_of msg) reason) 
-          in
+          let log_e = explain "dropping %s because: %s" (string_of msg) reason in
           Fsm.return ~sides:[log_e0;log_e] (Wait_for_promises state) 
         in
         begin
@@ -467,11 +462,8 @@ let accepteds_check_done constants state () =
   if needed = 0 
   then
     begin
-      let log_e = 
-        ELog (fun () ->
-          Printf.sprintf "accepted_check_done :: we're done! returning %s %s"
-	        (Sn.string_of n) ( Sn.string_of i )
-        )
+      let log_e = explain "accepted_check_done :: we're done! returning %s %s"
+	    (Sn.string_of n) ( Sn.string_of i )
       in
       let sides = [log_e] in
       Fsm.return ~sides (Master_consensus (mo,v,n,i))
@@ -489,11 +481,7 @@ let wait_for_accepteds constants state (event:paxos_event) =
            when I fall back to a state without mo ? *)
 	    let (mo,n,i,ballot,v) = state in
 	    let drop msg reason =
-          let log_e = ELog 
-            (fun () ->
-	          Printf.sprintf "dropping %s because : '%s'" (MPMessage.string_of msg) reason
-            )
-          in	      
+          let log_e = explain "dropping %s because : '%s'" (MPMessage.string_of msg) reason in	      
 	      Fsm.return ~sides:[log_e] (Wait_for_accepteds state)
 	    in
 	    let needed, already_voted = ballot in
@@ -632,13 +620,8 @@ let wait_for_accepteds constants state (event:paxos_event) =
         let here = "wait_for_accepteds : election timeout " in
 	    if n' < n then
 	      begin
-            let log_e = 
-              ELog (fun () ->
-                Printf.sprintf
-	              "%s ignoring old timeout %s<%s" 
-                  here
-                  (Sn.string_of n') (Sn.string_of n) 
-              )
+            let log_e = explain 
+	          "%s ignoring old timeout %s<%s" here (Sn.string_of n') (Sn.string_of n) 
             in
 	        Fsm.return ~sides:[log_e] (Wait_for_accepteds state)
 	      end
@@ -646,21 +629,19 @@ let wait_for_accepteds constants state (event:paxos_event) =
 	      begin
 	        if (am_forced_master constants me) then
 	          begin
-		        log ~me "going to RESEND Accept messages" >>= fun () ->
+                let log_e = explain "going to RESEND Accept messages" in
 		        let needed, already_voted = ballot in
 		        let msg = Accept(n,i,v) in
-		        let silent_others = List.filter (fun o -> not (List.mem o already_voted)) 
+		        let silent_others = List.filter 
+                  (fun o -> not (List.mem o already_voted)) 
 		          constants.others in
-		        Lwt_list.iter_s (fun o -> constants.send msg me o) silent_others >>= fun () ->
-		        mcast constants msg >>= fun () ->
-                Fsm.return (Wait_for_accepteds state)
+                let sides0 = List.fold_left (fun acc id -> ESend (msg,id) :: acc) [] silent_others in
+                let sides = log_e :: sides0 in
+                Fsm.return ~sides (Wait_for_accepteds state)
 	          end
 	        else
 	          begin
-                let log_e = 
-                  ELog (fun ()->
-		            Printf.sprintf "%s TODO: election part of election timeout" here) 
-                in
+                let log_e = explain "%s TODO: election part of election timeout" here in
 		        Fsm.return ~sides:[log_e] (Wait_for_accepteds state)
 	          end
 		        
@@ -852,15 +833,18 @@ let section =
 
 let _execute_effects constants e = 
   match e with
-    | ELog build ->
+    | ELog emit ->
         if Lwt_log.Section.level section <= Lwt_log.Debug 
         then
-          let s = build () in
-          let s' = "PURE:" ^ constants.me ^ " : " ^ s in
-          Lwt_log.debug s' 
+          let b = Buffer.create 128 in
+          let () = Buffer.add_string b "PURE:" in
+          let () = Buffer.add_string b constants.me in
+          let () = Buffer.add_string b " : " in
+          let () = emit b in
+          Lwt_log.debug (Buffer.contents b) 
         else
           Lwt.return ()
-    | EMCast msg          -> mcast constants msg
+    | EMCast msg          -> Act.multi_cast constants msg
     | EAccept (v,n,i)     -> constants.on_accept (v,n,i) 
     | ESend (msg, target) -> constants.send msg constants.me target
     | EStartLeaseExpiration (v,n, slave) ->

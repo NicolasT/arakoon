@@ -87,7 +87,7 @@ let show_transition = function
   | Read_only _ -> "Read_only"
 
 type effect = 
-  | ELog of (unit -> string)
+  | ELog of (Buffer.t -> unit)
   | EMCast  of Mp_msg.MPMessage.t
   | ESend of Mp_msg.MPMessage.t * Messaging.id
   | EAccept of (Value.t * n * i)  
