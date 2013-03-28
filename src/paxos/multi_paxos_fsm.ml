@@ -37,9 +37,11 @@ open Master_type
 let forced_master_suggest constants (n,i) () =
   let me = constants.me in
   let n' = update_n constants n in
-  Act.multi_cast constants (Prepare (n',i)) >>= fun () ->
-  start_election_timeout constants n >>= fun () ->
-  log ~me "forced_master_suggest: suggesting n=%s" (Sn.string_of n') >>= fun () ->
+  let log_e = explain "forced_master_suggest: suggesting n=%s" (Sn.string_of n') in
+  let sides = [EMCast (Prepare(n',i));
+               EStartElectionTimeout n;
+               log_e]
+  in
   let tlog_coll = constants.tlog_coll in
   let l_val = tlog_coll # get_last_value i in
   
@@ -51,10 +53,9 @@ let forced_master_suggest constants (n,i) () =
     end 
   in
   let who_voted = [me] in
-  
   let i_lim = Some (me,i) in
   let state = (n', i, who_voted, v_lims, i_lim) in
-  Fsm.return (Promises_check_done state)
+  Fsm.pure ~sides (Promises_check_done state)
 
 (* in case of election, everybody suggests himself *)
 let election_suggest constants (n,i,vo) () =
@@ -65,25 +66,33 @@ let election_suggest constants (n,i,vo) () =
         (1,[]) , "None"
       | Some x -> (0,[(x,1)]) , "Some _"
   in
-  log ~me "election_suggest: n=%s i=%s %s"  (Sn.string_of n) (Sn.string_of i) msg >>= fun () ->
-  start_election_timeout constants n >>= fun () ->
+  let log_e = explain "election_suggest: n=%s i=%s %s"  (Sn.string_of n) (Sn.string_of i) msg in
+  let election_e = EStartElectionTimeout n in
   let delay =
     match constants.master with
       | Preferred ps when not (List.mem me ps) -> 1 + (constants.lease_expiration /2)
       | _ -> 0
   in
-  let df = float delay in
-  Lwt.ignore_result 
-    (Lwt_unix.sleep df >>= fun () -> Act.multi_cast constants (Prepare (n,i)));
+  let delayed_send_e = 
+    EGen (fun () ->
+      let df = float delay in
+      Lwt.ignore_result 
+        (Lwt_unix.sleep df >>= fun () -> Act.multi_cast constants (Prepare (n,i)));
+      Lwt.return ())
+    
+  in
   let who_voted = [me] in
   let i_lim = Some (me,i) in
   let state = (n, i, who_voted, v_lims, i_lim) in
-  Fsm.return (Promises_check_done state)
+  let sides = [log_e;election_e;delayed_send_e] in
+  Fsm.pure ~sides (Promises_check_done state)
 
 let read_only constants state () =
-  Lwt_unix.sleep 60.0 >>= fun () ->
-  Lwt_log.debug "read_only ..." >>= fun () ->
-  Fsm.return (Read_only state)
+  let gen_e = EGen (fun () ->
+    Lwt_unix.sleep 60.0 >>= fun () ->
+    Lwt_log.debug "read_only ...")
+  in
+  Fsm.pure ~sides:[gen_e] (Read_only state)
 
 (* a pending slave that is waiting for a prepare or a nak
    in order to discover a master *)
@@ -461,15 +470,12 @@ let accepteds_check_done constants state () =
   let needed, already_voted = ballot in
   if needed = 0 
   then
-    begin
-      let log_e = explain "accepted_check_done :: we're done! returning %s %s"
-	    (Sn.string_of n) ( Sn.string_of i )
-      in
-      let sides = [log_e] in
-      Fsm.return ~sides (Master_consensus (mo,v,n,i))
-    end
+    let sides = [explain "accepted_check_done :: we're done! returning %s %s"
+	                (Sn.string_of n) ( Sn.string_of i )]
+    in
+    Fsm.pure ~sides (Master_consensus (mo,v,n,i))
   else
-    Fsm.return (Wait_for_accepteds state)
+    Fsm.pure (Wait_for_accepteds state)
       
 (* a (potential or full) master is waiting for accepteds and receives a msg *)
 let wait_for_accepteds constants state (event:paxos_event) =
@@ -679,10 +685,10 @@ let machine constants =
   let node_and_inject_and_timeout = Node_and_inject_and_timeout in
   function
   | Forced_master_suggest state ->
-    (Unit_arg (forced_master_suggest constants state), nop)
+    (PUnit_arg (forced_master_suggest constants state), nop)
 
   | Slave_fake_prepare i ->
-    (Unit_arg (Slave.slave_fake_prepare constants i), nop)
+    (PUnit_arg (Slave.slave_fake_prepare constants i), nop)
   | Slave_waiting_for_prepare state ->
     (Msg_arg (slave_waiting_for_prepare constants state), node_and_inject_and_timeout)
   | Slave_wait_for_accept state ->
@@ -699,19 +705,19 @@ let machine constants =
   | Wait_for_accepteds state ->
     (Msg_arg (wait_for_accepteds constants state), node_and_timeout)
   | Accepteds_check_done state ->
-    (Unit_arg (accepteds_check_done constants state), nop)
+    (PUnit_arg (accepteds_check_done constants state), nop)
 
   | Master_consensus state ->
-    (Unit_arg (Master.master_consensus constants state), nop)
+    (PUnit_arg (Master.master_consensus constants state), nop)
   | Stable_master state ->
     (Msg_arg (Master.stable_master constants state), full)
   | Master_dictate state ->
-    (Unit_arg (Master.master_dictate constants state), nop)
+    (PUnit_arg (Master.master_dictate constants state), nop)
 
   | Election_suggest state ->
-    (Unit_arg (election_suggest constants state), nop)
+    (PUnit_arg (election_suggest constants state), nop)
   | Read_only state -> 
-    (Unit_arg (read_only constants state), nop)
+    (PUnit_arg (read_only constants state), nop)
   | Start_transition -> failwith "Start_transition?"
 
 let __tracing = ref false
@@ -928,8 +934,8 @@ let enter_simple_paxos constants buffers current_i vo =
       Fsm.loop ~trace 
         (_execute_effects constants)
         produce 
-	(machine constants) 
-	(election_suggest constants (current_n, current_i, vo))
+	    (machine constants) 
+	    (election_suggest constants (current_n, current_i, vo))
     ) 
     (fun e ->
       log ~me "FSM BAILED (run_election) due to uncaught exception %s" 
@@ -965,7 +971,7 @@ let expect_run_forced_slave constants buffers expected step_count new_i =
       Fsm.expect_loop 
         (_execute_effects constants)
         expected step_count Start_transition produce 
-	(machine constants) (Slave.slave_fake_prepare constants new_i)
+	    (machine constants) (Slave.slave_fake_prepare constants new_i)
     ) 
     (fun e ->
       log ~me "FSM BAILED due to uncaught exception %s" (Printexc.to_string e) 

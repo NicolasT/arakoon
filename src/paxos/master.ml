@@ -37,7 +37,7 @@ let master_consensus constants ((finished_funs : master_option),v,n,i) () =
     (Value.value2s v) (List.length finished_funs)
   in
   let state = (v,n,(Sn.succ i)) in
-  Fsm.return ~sides:[gen_e;log_e] (Stable_master state)
+  Fsm.pure ~sides:[gen_e;log_e] (Stable_master state)
     
 
 
@@ -61,10 +61,9 @@ let stable_master constants ((v',n,new_i) as current_state) = function
 	      in
 	      match constants.master with
 	        | Preferred ps when not (List.mem me ps) ->
-                  let lws = List.map (fun name -> (name, constants.last_witnessed name)) ps in
-                  (* Multiply with -1 to get a reverse-sorted list *)
-                  let slws = List.fast_sort (fun (_, b) (_, a) -> compare a b) lws in
-                  let (p, p_i) = List.hd slws in
+              let lws = List.map (fun name -> (name, constants.last_witnessed name)) ps in
+              let slws = List.fast_sort (fun (_, b) (_, a) -> compare a b) lws in
+              let (p, p_i) = List.hd slws in
 	          let diff = Sn.diff new_i p_i in
 	          if diff < (Sn.of_int 5) 
               then
@@ -162,4 +161,4 @@ let master_dictate constants (mo,v,n,i) () =
     (Sn.string_of n) (Sn.string_of i) needed' 
   in
   let sides = [accept_e;start_e;mcast_e;log_e] in
-  Fsm.return ~sides (Accepteds_check_done (mo, n, i, ballot, v))
+  Fsm.pure ~sides (Accepteds_check_done (mo, n, i, ballot, v))

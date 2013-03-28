@@ -55,7 +55,7 @@ let slave_fake_prepare constants (current_i,current_n) () =
   let log_e = explain "slave_fake_prepare: sending Prepare(-1)" in
   let fake = Prepare( Sn.of_int (-1), current_i) in
   let mcast_e = EMCast fake in
-  Fsm.return ~sides:[log_e;mcast_e] (Slave_waiting_for_prepare (current_i,current_n))
+  Fsm.pure ~sides:[log_e;mcast_e] (Slave_waiting_for_prepare (current_i,current_n))
 
 (* a pending slave that is in sync on i and is ready
    to receive accepts *)
@@ -124,8 +124,7 @@ let slave_steady_state constants state event =
 	        begin
               handle_prepare constants source n n' i' >>= function
 		        | Prepare_dropped 
-		        | Nak_sent ->
-		          Fsm.return ~sides:[log_e0] (Slave_steady_state state)
+		        | Nak_sent -> Fsm.return ~sides:[log_e0] (Slave_steady_state state)
 		        | Promise_sent_up2date ->
 		          let next_i = Store.get_succ_store_i constants.store in
 		          Fsm.return (Slave_wait_for_accept (n', next_i, None, None))
@@ -224,8 +223,8 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
             begin
 	          let () = constants.on_witness source i' in
               handle_prepare constants source n n' i' >>= function
-                | Prepare_dropped -> Fsm.return( Slave_wait_for_accept (n,i,vo, maybe_previous) )
-                | Nak_sent -> Fsm.return( Slave_wait_for_accept (n,i,vo, maybe_previous) )
+                | Prepare_dropped      -> Fsm.return( Slave_wait_for_accept (n, i,vo, maybe_previous) )
+                | Nak_sent             -> Fsm.return( Slave_wait_for_accept (n, i,vo, maybe_previous) )
                 | Promise_sent_up2date -> Fsm.return( Slave_wait_for_accept (n',i,vo, maybe_previous) )
                 | Promise_sent_needs_catchup -> 
                   let i = Store.get_catchup_start_i constants.store in
@@ -333,26 +332,8 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
         if elections_needed then
           begin
             let log_e = explain "slave_wait_for_accept: Elections needed" in
-            (* begin *)
             let el_i = Store.get_succ_store_i constants.store in
             let el_up = constants.get_value el_i in
-            (*
-              begin
-              if el_i = (Sn.pred i) 
-              then 
-              begin
-              match maybe_previous with
-              | None -> None
-              | Some ( pup, prev_i )  -> Some pup 
-              end
-              else None
-              end
-              in
-              
-              Lwt.return (el_i,el_up)
-              end
-              >>= fun (el_i, el_up) ->
-            *)
             let new_n = update_n constants n in
             Fsm.return ~sides:[log_e] (Election_suggest (new_n, el_i, el_up))
           end
@@ -400,7 +381,6 @@ let slave_discovered_other_master constants state () =
 			                Sn.pred current_i') (* pred =  consensus_i *)
 	    in
 	    Act.multi_cast constants fake >>= fun () ->
-	    
 	    match vo' with
 	      | Some v ->
             begin
