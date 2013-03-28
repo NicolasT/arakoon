@@ -211,8 +211,6 @@ module X = struct
     
   let on_accept statistics (tlog_coll:Tlogcollection.tlog_collection) store (v,n,i) =
     let t0 = Unix.gettimeofday () in
-    Lwt_log.debug_f "on_accept: n:%s i:%s" (Sn.string_of n) (Sn.string_of i) 
-    >>= fun () ->
     let sync = Value.is_synced v in
     let marker = (None:string option) in
     tlog_coll # log_value_explicit i v sync marker >>= fun wr_result ->
@@ -250,7 +248,9 @@ module X = struct
     end  >>= fun () ->
     let t1 = Unix.gettimeofday() in
     let d = t1 -. t0 in
-    Lwt_log.debug_f "T:on_accept took: %f" d 
+    if d > 0.5 
+    then Lwt_log.debug_f "T:on_accept took: %f" d 
+    else Lwt.return () 
       
   let reporting period backend () = 
     let fp = float period in
@@ -421,7 +421,6 @@ let _main_2
 	        (fun () -> make_tlog_coll me.tlog_dir me.use_compression name ) 
 	        (function 
               | Tlc2.TLCCorrupt (pos,tlog_i) ->
-                let store_i = store # consensus_i () in
                 Tlc2.get_last_tlog me.tlog_dir >>= fun (last_c, last_tlog) ->
                 let tlog_i = 
                   begin

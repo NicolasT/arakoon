@@ -104,17 +104,17 @@ let stable_master constants ((v',n,new_i) as current_state) = function
 		        end
 	          else
 		        begin
-		          handle_prepare constants source n n' i' >>= function
-		            | Nak_sent 
-		            | Prepare_dropped -> Fsm.return  (Stable_master current_state )
-		            | Promise_sent_up2date ->
+		          match handle_prepare constants source n n' i' with
+		            | Nak_sent sides
+		            | Prepare_dropped sides      -> Fsm.return ~sides  (Stable_master current_state )
+		            | Promise_sent_up2date sides ->
 		              begin
                         let l_val = constants.tlog_coll # get_last () in
-			            Fsm.return (Slave_wait_for_accept (n', new_i, None, l_val))
+			            Fsm.return ~sides (Slave_wait_for_accept (n', new_i, None, l_val))
 		              end
-		            | Promise_sent_needs_catchup ->
-                      let i = Store.get_catchup_start_i constants.store in
-                      Fsm.return (Slave_discovered_other_master (source, i, n', i'))
+		            | Promise_sent_needs_catchup sides ->
+                      let i = Store.get_succ_store_i constants.store in
+                      Fsm.return ~sides (Slave_discovered_other_master (source, i, n', i'))
 		        end
 	        end
           | Accepted(n,i) -> 

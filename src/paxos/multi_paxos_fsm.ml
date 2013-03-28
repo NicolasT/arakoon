@@ -106,30 +106,30 @@ let slave_waiting_for_prepare constants ( (current_i:Sn.t),(current_n:Sn.t)) eve
 	match msg with
 	  | Prepare(n',i') ->
 	    begin
-          handle_prepare constants source current_n n' i' >>= function
-		    | Nak_sent
-		    | Prepare_dropped ->
-		        Fsm.return ( Slave_waiting_for_prepare(current_i, current_n ) )
-		    | Promise_sent_up2date ->
+          match handle_prepare constants source current_n n' i' with
+		    | Nak_sent sides
+		    | Prepare_dropped sides ->
+		        Fsm.return ~sides ( Slave_waiting_for_prepare(current_i, current_n ) )
+		    | Promise_sent_up2date sides ->
                 begin
 		          let last = constants.tlog_coll # get_last () in
-		          Fsm.return (Slave_wait_for_accept (n', current_i, None, last))
+		          Fsm.return ~sides (Slave_wait_for_accept (n', current_i, None, last))
                 end
-		    | Promise_sent_needs_catchup ->
-		        let i = Store.get_catchup_start_i constants.store in
+		    | Promise_sent_needs_catchup sides ->
+		        let i = Store.get_succ_store_i constants.store in
 		        let state = (source, i, n',i') in 
-		        Fsm.return (Slave_discovered_other_master state)
+		        Fsm.return ~sides (Slave_discovered_other_master state)
 	    end
 	  | Nak(n',(n2, i2)) when n' = -1L ->
 	      begin
 	        log ~me "fake prepare response: discovered master" >>= fun () ->
-            let cu_pred = Store.get_catchup_start_i constants.store in
+            let cu_pred = Store.get_succ_store_i constants.store in
             Fsm.return (Slave_discovered_other_master (source, cu_pred, n2, i2))
 	      end
 	  | Nak(n',(n2, i2)) when i2 > current_i ->
 	      begin
 	        log ~me "got %s => go to catchup" (string_of msg) >>= fun () ->
-            let cu_pred =  Store.get_catchup_start_i constants.store in
+            let cu_pred =  Store.get_succ_store_i constants.store in
             Fsm.return (Slave_discovered_other_master (source, cu_pred, n2, i2))
 	      end
 	  | Nak(n',(n2, i2)) when i2 = current_i ->
@@ -153,7 +153,7 @@ let slave_waiting_for_prepare constants ( (current_i:Sn.t),(current_n:Sn.t)) eve
 	      end
       | Accept(n', i', v) when current_n = n' && i' > current_i ->
           begin
-            let cu_pred = Store.get_catchup_start_i constants.store in
+            let cu_pred = Store.get_succ_store_i constants.store in
             Fsm.return (Slave_discovered_other_master (source, cu_pred, n', i'))
           end
 	  | _ -> log ~me "dropping unexpected %s" (string_of msg) >>= fun () ->
@@ -331,7 +331,7 @@ let wait_for_promises constants state event =
                       >>= fun () ->
                       if i' > i 
                       then
-                        let cu_pred = Store.get_catchup_start_i constants.store in
+                        let cu_pred = Store.get_succ_store_i constants.store in
                         Fsm.return (Slave_discovered_other_master (source,cu_pred,n'',i'))
                       else
 			            let new_n = update_n constants (max n n'') in
@@ -355,23 +355,21 @@ let wait_for_promises constants state event =
 				        Fsm.return (Forced_master_suggest (new_n, i))
 				      end
 		        else
-                  
-                  handle_prepare constants source n n' i' >>= function
-                    | Nak_sent ->
-                      log ~me "wait_for_promises: resending prepare" >>= fun () ->
-                      let reply = Prepare(n, i) in
-                      constants.send reply me source >>= fun () ->
-                      Fsm.return (Wait_for_promises state)
-                    | Prepare_dropped -> 
-                      Fsm.return (Wait_for_promises state)
-                    | Promise_sent_up2date ->
+                  match handle_prepare constants source n n' i' with
+                    | Nak_sent sides ->
+                      let log_e = explain"wait_for_promises: resending prepare" in
+                      let send_e = ESend (Prepare(n, i), source) in
+                      let sides' = sides @ [log_e;send_e] in
+                      Fsm.return ~sides:sides' (Wait_for_promises state)
+                    | Prepare_dropped sides      -> Fsm.return ~sides (Wait_for_promises state)
+                    | Promise_sent_up2date sides ->
 		                begin
                           let last = constants.tlog_coll # get_last () in
-			              Fsm.return (Slave_wait_for_accept (n', i, None, last))
+			              Fsm.return ~sides (Slave_wait_for_accept (n', i, None, last))
 		                end
-		            | Promise_sent_needs_catchup ->
-		              let i = Store.get_catchup_start_i constants.store in
-		              Fsm.return (Slave_discovered_other_master (source, i, n', i'))
+		            | Promise_sent_needs_catchup sides ->
+		              let i = Store.get_succ_store_i constants.store in
+		              Fsm.return ~sides (Slave_discovered_other_master (source, i, n', i'))
               end
             | Accept (n',_i,_v) when n' < n ->
                 begin
@@ -455,14 +453,16 @@ let wait_for_promises constants state event =
    enough, consensus is reached and he becomes a full master *)
 let lost_master_role finished_funs =
   begin
-	let msg = "lost master role during wait_for_accepteds while handling client request" in
-	let rc = Arakoon_exc.E_NOT_MASTER in
-	let result = Store.Update_fail (rc, msg) in
-    let rec loop = function
-      | [] -> Lwt.return ()
-      | f::ffs -> f result >>= fun () -> loop ffs
-    in
-	loop finished_funs
+    EGen (fun() ->
+	  let msg = "lost master role during wait_for_accepteds while handling client request" in
+	  let rc = Arakoon_exc.E_NOT_MASTER in
+	  let result = Store.Update_fail (rc, msg) in
+      let rec loop = function
+        | [] -> Lwt.return ()
+        | f::ffs -> f result >>= fun () -> loop ffs
+      in
+	  loop finished_funs
+    )
   end
 
 let accepteds_check_done constants state () =
@@ -547,75 +547,73 @@ let wait_for_accepteds constants state (event:paxos_event) =
                     if n' <= n
                     then
                       let reply = Nak( n', (n,i) ) in
-                      constants.send reply me source >>= fun () ->
                       let followup = Accept( n, i, v) in
-                      constants.send followup me source >>= fun () ->
-                      Fsm.return (Wait_for_accepteds state)
+                      let sides = [ESend(reply,source); ESend(followup,source)] in
+                      Fsm.return ~sides (Wait_for_accepteds state)
                     else
                       begin
-                        lost_master_role mo >>= fun () ->
-                        Fsm.return (Forced_master_suggest (n',i))
+                        let sides = [lost_master_role mo] in
+                        Fsm.return ~sides (Forced_master_suggest (n',i))
                       end
 	              else 
                     begin
-                      handle_prepare constants source n n' i' >>= 
-                        function
-                          | Prepare_dropped
-                          | Nak_sent -> 
-                              Fsm.return( Wait_for_accepteds state )
-                          | Promise_sent_up2date ->
-                              begin
-                                let last = constants.tlog_coll # get_last () in
-                                lost_master_role mo >>= fun () ->
-				                Fsm.return (Slave_wait_for_accept (n', i, None, last))
-                              end
-                          | Promise_sent_needs_catchup ->
-                              begin
-                                let i = Store.get_catchup_start_i constants.store in
-                                lost_master_role mo >>= fun () ->
-                                Fsm.return (Slave_discovered_other_master (source, i, n', i'))
-                              end
+                      match handle_prepare constants source n n' i' with
+                        | Prepare_dropped sides
+                        | Nak_sent sides -> 
+                          Fsm.return ~sides ( Wait_for_accepteds state )
+                        | Promise_sent_up2date sides ->
+                          begin
+                            let last = constants.tlog_coll # get_last () in
+                            let sides2 = [lost_master_role mo] in
+				            Fsm.return ~sides:(sides @ sides2) (Slave_wait_for_accept (n', i, None, last))
+                          end
+                        | Promise_sent_needs_catchup sides ->
+                          begin
+                            let i = Store.get_succ_store_i constants.store in
+                            let sides2 = [lost_master_role mo] in
+                            Fsm.return ~sides:(sides @ sides2) (Slave_discovered_other_master (source, i, n', i'))
+                          end
                     end
                 end 
 	        | Nak (n',i) ->
-	            begin
-	              log ~me "wait_for_accepted: ignoring %S from %s when collecting accepteds" 
-                    (MPMessage.string_of msg) source >>= fun () ->
-	              Fsm.return (Wait_for_accepteds state)
-	            end
+	          begin
+	            let log_e = explain  "wait_for_accepted: ignoring %S from %s when collecting accepteds" 
+                  (MPMessage.string_of msg) source in
+	            Fsm.return ~sides:[log_e] (Wait_for_accepteds state)
+	          end
 	        | Accept (n',_i,_v) when n' < n ->
-	            begin
-	              log ~me "wait_for_accepted: dropping old Accept %S" (string_of msg) >>= fun () ->
-	              Fsm.return (Wait_for_accepteds state)
+	          begin
+                let log_e = explain "wait_for_accepted: dropping old Accept %S" (string_of msg) in
+	            Fsm.return ~sides:[log_e] (Wait_for_accepteds state)
 	            end
 	        | Accept (n',i',v') when (n',i',v')=(n,i,v) ->
-	            begin
-	              log ~me "wait_for_accepted: ignoring extra Accept %S" (string_of msg) >>= fun () ->
-	              Fsm.return (Wait_for_accepteds state)
+	          begin
+                let log_e = explain "wait_for_accepted: ignoring extra Accept %S" (string_of msg) in
+	            Fsm.return ~sides:[log_e] (Wait_for_accepteds state)
 	            end
 	        | Accept (n',i',v') when n' > n ->
-                lost_master_role mo >>= fun () ->
                 begin 
+                  let e0 = lost_master_role mo in
                   (* Become slave, goto catchup *)
-                  log ~me "wait_for_accepteds: received Accept from new master %S" (string_of msg) >>= fun () ->
-                  let cu_pred = Store.get_catchup_start_i constants.store in
+                  let log_e = explain "wait_for_accepteds: received Accept from new master %S" (string_of msg) in
+                  let cu_pred = Store.get_succ_store_i constants.store in
                   let new_state = (source,cu_pred,n,i') in 
-                  Fsm.return (Slave_discovered_other_master new_state)
+                  Fsm.return ~sides:[e0;log_e] (Slave_discovered_other_master new_state)
                 end
 	        | Accept (n',i',v') when i' <= i -> (* n' = n *)
-                begin
-                  log ~me "wait_for_accepteds: dropping accept with n = %s and i = %s" 
-                    (Sn.string_of n) (Sn.string_of i') >>= fun () ->
-                  Fsm.return (Wait_for_accepteds state)
-                end
+              begin
+                let log_e = explain "wait_for_accepteds: dropping accept with n = %s and i = %s" 
+                  (Sn.string_of n) (Sn.string_of i') in
+                Fsm.return ~sides:[log_e] (Wait_for_accepteds state)
+              end
             | Accept (n',i',v') -> (* n' = n *)
-	            begin
-                  log ~me "wait_for_accepteds: got accept with n = %s and higher i = %s" 
-                    (Sn.string_of n) (Sn.string_of i') >>= fun () ->
-                  let cu_pred = Store.get_catchup_start_i constants.store in
-                  let new_state = (source,cu_pred,n,i') in
-                  Fsm.return(Slave_discovered_other_master new_state)
-                end
+	          begin
+                let log_e = explain "wait_for_accepteds: got accept with n = %s and higher i = %s" 
+                  (Sn.string_of n) (Sn.string_of i') in
+                let cu_pred = Store.get_succ_store_i constants.store in
+                let new_state = (source,cu_pred,n,i') in
+                Fsm.return ~sides:[log_e] (Slave_discovered_other_master new_state)
+              end
         end
       end
     | FromClient _       -> paxos_fatal me "no FromClient should get here"
@@ -784,15 +782,16 @@ let rec paxos_produce buffers
   in
   Lwt.catch 
     (fun () ->
-      Lwt_log.debug_f "T:waiting for event (%s)" wmsg >>= fun () ->
       let t0 = Unix.gettimeofday () in
-
       Lwt.pick waiters >>= fun ready_list ->
-
       let t1 = Unix.gettimeofday () in
       let d = t1 -. t0 in 
-      Lwt_log.debug_f "T:waiting for event took:%f" d >>= fun () ->
-
+      begin
+        if (d > 1.0) then
+          Lwt_log.debug_f "T:waiting for event took:%f" d 
+        else
+          Lwt.return ()
+      end >>= fun () ->
       let get_highest_prio_evt r_list =
         let f acc b = match acc with 
           | None -> Some b

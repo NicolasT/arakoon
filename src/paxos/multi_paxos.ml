@@ -211,11 +211,11 @@ let start_election_timeout constants n =
   let () = Lwt.ignore_result (t ()) in
   Lwt.return ()
 
-type prepare_repsonse =
-  | Prepare_dropped
-  | Promise_sent_up2date
-  | Promise_sent_needs_catchup
-  | Nak_sent
+type prepare_response =
+  | Prepare_dropped of effect list
+  | Promise_sent_up2date of effect list
+  | Promise_sent_needs_catchup of effect list
+  | Nak_sent of effect list
 
 let handle_prepare constants dest n n' i' =
   let me = constants.me in
@@ -229,24 +229,21 @@ let handle_prepare constants dest n n' i' =
           match s_i with
             | None -> Sn.start
             | Some si -> Sn.succ si
-	end in
+	    end 
+      in
       let reply = Nak( n',(n,nak_i)) in
-      log ~me "replying with %S to learner %s" (string_of reply) dest
-      >>= fun () ->
-      constants.send reply me dest >>= fun () ->
-      Lwt.return Nak_sent 
+      let send_e = ESend(reply, dest) in
+      let log_e = explain "replying with %S to learner %s" (string_of reply) dest in
+      let sides = [log_e;send_e] in
+      Nak_sent sides
     end
   else
     begin
       let can_pr = can_promise constants.store constants.lease_expiration dest in
       if not can_pr && n' >= 0L
       then
-	    begin 
-          log ~me "handle_prepare: Dropping prepare - lease still active" 
-	      >>= fun () ->
-	      Lwt.return Prepare_dropped
-	        
-	    end
+        let e = explain "handle_prepare: Dropping prepare - lease still active" in
+	    Prepare_dropped [e]
       else 
 	    begin
           let store = constants.store in
@@ -264,28 +261,23 @@ let handle_prepare constants dest n n' i' =
           then
             (* Send Nak, other node is behind *)
             let reply = Nak( n',(n,nak_max)) in
-            log ~me "NAK:other node is behind: i':%s nak_max:%s" 
-              (Sn.string_of i') (Sn.string_of nak_max) >>= fun () ->
-            Lwt.return (Nak_sent, reply) 
+            let log_e = explain "NAK:other node is behind: i':%s nak_max:%s" 
+              (Sn.string_of i') (Sn.string_of nak_max) in
+            Nak_sent [log_e;ESend (reply, dest)]
           else
             begin
               (* We will send a Promise, start election timer *)
               let lv = constants.get_value nak_max in
               let reply = Promise(n',nak_max,lv) in
-              log ~me "handle_prepare: starting election timer" >>= fun () ->
-              start_election_timeout constants n' >>= fun () ->
+              let log_e = explain "handle_prepare: starting election timer" in
+              let election_e = EStartElectionTimeout n in
+              let send_e = ESend(reply, dest) in
+              let sides = [log_e;election_e;send_e] in
               if i' > nak_max
-              then
-                (* Send Promise, but I need catchup *)
-		        Lwt.return(Promise_sent_needs_catchup, reply)
-              else (* i' = i *)
-                (* Send Promise, we are in sync *)
-		        Lwt.return(Promise_sent_up2date, reply)
+              then Promise_sent_needs_catchup sides
+              else Promise_sent_up2date sides
             end 
-	    end >>= fun (ret_val, reply) ->
-      log ~me "handle_prepare replying with %S" (string_of reply) >>= fun () ->
-      constants.send reply me dest >>= fun () ->
-      Lwt.return ret_val
+	    end 
     end
       
 let safe_wakeup sleeper awake value =

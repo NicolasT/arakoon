@@ -356,4 +356,3 @@ let get_succ_store_i (store:store) =
     | None -> Sn.start
     | Some si -> Sn.succ si
 
-let get_catchup_start_i = get_succ_store_i

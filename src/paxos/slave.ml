@@ -116,22 +116,22 @@ let slave_steady_state constants state event =
                 "slave_steady_state foreign (%s,%s) from %s <> local (%s,%s) discovered other master"
 		        (Sn.string_of n') (Sn.string_of i') source (Sn.string_of  n) (Sn.string_of  i)
               in
-              let cu_pred = Store.get_catchup_start_i constants.store in
+              let cu_pred = Store.get_succ_store_i constants.store in
               let new_state = (source,cu_pred,n',i') in 
               Fsm.return ~sides:[log_e0;log_e] (Slave_discovered_other_master(new_state) ) 
 	        end
 	      | Prepare(n',i') ->
 	        begin
-              handle_prepare constants source n n' i' >>= function
-		        | Prepare_dropped 
-		        | Nak_sent -> Fsm.return ~sides:[log_e0] (Slave_steady_state state)
-		        | Promise_sent_up2date ->
+              match handle_prepare constants source n n' i' with
+		        | Prepare_dropped sides 
+		        | Nak_sent sides              -> Fsm.return ~sides:(log_e0::sides) (Slave_steady_state state)
+		        | Promise_sent_up2date sides  ->
 		          let next_i = Store.get_succ_store_i constants.store in
-		          Fsm.return (Slave_wait_for_accept (n', next_i, None, None))
-		        | Promise_sent_needs_catchup ->
-		          let i = Store.get_catchup_start_i constants.store in
+		          Fsm.return ~sides:(log_e0::sides) (Slave_wait_for_accept (n', next_i, None, None))
+		        | Promise_sent_needs_catchup sides ->
+		          let i = Store.get_succ_store_i constants.store in
 		          let new_state = (source, i, n', i') in 
-		          Fsm.return ~sides:[log_e0] (Slave_discovered_other_master(new_state) ) 
+		          Fsm.return ~sides:(log_e0::sides) (Slave_discovered_other_master(new_state) ) 
 	        end
 	      | Nak _ 
 	      | Promise _ 
@@ -215,21 +215,18 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
     | FromNode(msg,source) ->
       begin
 	    let me = constants.me in
-	    log ~me "slave_wait_for_accept n=%s:: received %S from %s" 
-	      (Sn.string_of n) (string_of msg) source
-	    >>= fun () ->
 	    match msg with
 	      | Prepare (n',i') ->
             begin
 	          let () = constants.on_witness source i' in
-              handle_prepare constants source n n' i' >>= function
-                | Prepare_dropped      -> Fsm.return( Slave_wait_for_accept (n, i,vo, maybe_previous) )
-                | Nak_sent             -> Fsm.return( Slave_wait_for_accept (n, i,vo, maybe_previous) )
-                | Promise_sent_up2date -> Fsm.return( Slave_wait_for_accept (n',i,vo, maybe_previous) )
-                | Promise_sent_needs_catchup -> 
-                  let i = Store.get_catchup_start_i constants.store in
+              match handle_prepare constants source n n' i' with
+                | Prepare_dropped sides      -> Fsm.return  ~sides ( Slave_wait_for_accept (n, i,vo, maybe_previous) )
+                | Nak_sent sides             -> Fsm.return  ~sides ( Slave_wait_for_accept (n, i,vo, maybe_previous) )
+                | Promise_sent_up2date sides -> Fsm.return  ~sides ( Slave_wait_for_accept (n',i,vo, maybe_previous) )
+                | Promise_sent_needs_catchup sides -> 
+                  let i = Store.get_succ_store_i constants.store in
                   let state = (source, i, n', i') in 
-                  Fsm.return( Slave_discovered_other_master state )
+                  Fsm.return ~sides ( Slave_discovered_other_master state )
             end
           | Accept (n',i',v) when n'=n ->
             begin
@@ -249,7 +246,7 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
                 begin
 	              if i' > i 
                   then 
-                    let cu_pred = Store.get_catchup_start_i constants.store in
+                    let cu_pred = Store.get_succ_store_i constants.store in
                     Fsm.return( Slave_discovered_other_master(source, cu_pred, n', i') )   
                   else
                     begin
@@ -293,7 +290,7 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
                   "slave_wait_for_accept: Got accept from other master with higher i (i: %s , i' %s)" 
                   (Sn.string_of i) (Sn.string_of i')  
                 in
-                let cu_pred = Store.get_catchup_start_i constants.store in
+                let cu_pred = Store.get_succ_store_i constants.store in
                 let new_state = (source, cu_pred, n', i') in 
                 Fsm.return ~sides:[log_e] (Slave_discovered_other_master new_state) 
               else
