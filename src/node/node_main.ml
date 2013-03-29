@@ -187,7 +187,14 @@ module X = struct
       (* Need to find a name for this: 
 	 the idea is to lift stuff out of _main_2 
       *)
-  
+
+  let significant d = d > 1.0 
+
+  let maybe_log an d = 
+    if significant d 
+    then Lwt_log.info_f "T:%s took:%f" an d
+    else Lwt.return () 
+    
   let on_consensus store vni =
     let (v,n,i) = vni in
     begin
@@ -202,7 +209,7 @@ module X = struct
 	    Store.on_consensus store vni >>= fun r ->
         let t1 = Unix.gettimeofday () in
         let d = t1 -. t0 in
-        Lwt_log.debug_f "T:on_consensus took: %f" d  >>= fun () ->
+        maybe_log "on_consensus" d >>= fun () ->
         Lwt.return r
 
     end
@@ -248,9 +255,7 @@ module X = struct
     end  >>= fun () ->
     let t1 = Unix.gettimeofday() in
     let d = t1 -. t0 in
-    if d > 0.5 
-    then Lwt_log.debug_f "T:on_accept took: %f" d 
-    else Lwt.return () 
+    maybe_log "on_accept" d
       
   let reporting period backend () = 
     let fp = float period in
