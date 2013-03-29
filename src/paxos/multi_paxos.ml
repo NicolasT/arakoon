@@ -31,9 +31,17 @@ let log ?(me="???") x =
   let k s= Lwt_log.debug (me ^ ": " ^ s) in
   Printf.ksprintf k x
 
+let section = 
+  let s = Lwt_log.Section.make "PAXOS" in
+  let () = Lwt_log.Section.set_level s Lwt_log.Debug in
+  s 
 
 let explain x = 
-  let k s = ELog (fun b -> Buffer.add_string b s) in
+  let k s = 
+    if Lwt_log.Section.level section <= Lwt_log.Debug 
+    then ELog (fun b -> Buffer.add_string b s) 
+    else ENop
+  in
   Printf.ksprintf k x
 
 
@@ -218,7 +226,6 @@ type prepare_response =
   | Nak_sent of effect list
 
 let handle_prepare constants dest n n' i' =
-  let me = constants.me in
   let () = constants.on_witness dest i' in 
   if not ( List.mem dest constants.others) then
     begin
@@ -255,8 +262,6 @@ let handle_prepare constants dest n n' i' =
 		        | Some si -> Sn.succ si
 	        end 
           in
-          let lv = constants.get_value nak_max in
-          
           if ( n' > n && i' < nak_max && nak_max <> Sn.start ) || n' <= n 
           then
             (* Send Nak, other node is behind *)

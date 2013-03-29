@@ -100,80 +100,75 @@ let slave_waiting_for_prepare constants ( (current_i:Sn.t),(current_n:Sn.t)) eve
   match event with 
     | FromNode(msg,source) ->
       begin
-	let me = constants.me in
-	log ~me "slave_waiting_for_prepare: %S" (MPMessage.string_of msg) 
-	>>= fun () ->
-	match msg with
-	  | Prepare(n',i') ->
-	    begin
-          match handle_prepare constants source current_n n' i' with
-		    | Nak_sent sides
-		    | Prepare_dropped sides ->
-		        Fsm.return ~sides ( Slave_waiting_for_prepare(current_i, current_n ) )
-		    | Promise_sent_up2date sides ->
-                begin
-		          let last = constants.tlog_coll # get_last () in
-		          Fsm.return ~sides (Slave_wait_for_accept (n', current_i, None, last))
-                end
-		    | Promise_sent_needs_catchup sides ->
-		        let i = Store.get_succ_store_i constants.store in
-		        let state = (source, i, n',i') in 
-		        Fsm.return ~sides (Slave_discovered_other_master state)
-	    end
-	  | Nak(n',(n2, i2)) when n' = -1L ->
-	      begin
-	        log ~me "fake prepare response: discovered master" >>= fun () ->
-            let cu_pred = Store.get_succ_store_i constants.store in
-            Fsm.return (Slave_discovered_other_master (source, cu_pred, n2, i2))
-	      end
-	  | Nak(n',(n2, i2)) when i2 > current_i ->
-	      begin
-	        log ~me "got %s => go to catchup" (string_of msg) >>= fun () ->
-            let cu_pred =  Store.get_succ_store_i constants.store in
-            Fsm.return (Slave_discovered_other_master (source, cu_pred, n2, i2))
-	      end
-	  | Nak(n',(n2, i2)) when i2 = current_i ->
-	      begin
-	        log ~me "got %s => we're in sync" (string_of msg) >>= fun () ->
-          (* pick in @ steady state *)
-	        let p = constants.get_value i2 in
-	        match p with
-              | None ->
+	    match msg with
+	      | Prepare(n',i') ->
+	        begin
+              match handle_prepare constants source current_n n' i' with
+		        | Nak_sent sides
+		        | Prepare_dropped sides ->
+		          Fsm.return ~sides ( Slave_waiting_for_prepare(current_i, current_n ) )
+		        | Promise_sent_up2date sides ->
                   begin
-	                Fsm.return (Slave_waiting_for_prepare (i2,current_n) )
+		            let last = constants.tlog_coll # get_last () in
+		            Fsm.return ~sides (Slave_wait_for_accept (n', current_i, None, last))
                   end
-              | Some v ->
+		        | Promise_sent_needs_catchup sides ->
+		          let i = Store.get_succ_store_i constants.store in
+		          let state = (source, i, n',i') in 
+		          Fsm.return ~sides (Slave_discovered_other_master state)
+	        end
+	      | Nak(n',(n2, i2)) when n' = -1L ->
+	        begin
+              let cu_pred = Store.get_succ_store_i constants.store in
+              Fsm.return (Slave_discovered_other_master (source, cu_pred, n2, i2))
+	        end
+	      | Nak(n',(n2, i2)) when i2 > current_i ->
+	        begin
+              let cu_pred =  Store.get_succ_store_i constants.store in
+              Fsm.return (Slave_discovered_other_master (source, cu_pred, n2, i2))
+	        end
+	      | Nak(n',(n2, i2)) when i2 = current_i ->
+	        begin
+              let log_e = explain "got %s => we're in sync" (string_of msg) in
+              (* pick in @ steady state *)
+	          match constants.get_value i2 with
+                | None ->
+	              Fsm.return ~sides:[log_e] (Slave_waiting_for_prepare (i2,current_n) )
+                | Some v ->
                   begin
-                    log ~me "reentering steady state @(%s,%s)" 
+                    let log2_e = explain "reentering steady state @(%s,%s)" 
 		              (Sn.string_of n2) (Sn.string_of i2) 
-                    >>= fun () ->
-                    start_lease_expiration_thread constants n2 constants.lease_expiration >>= fun () ->
-                    Fsm.return (Slave_steady_state (n2, i2, v))
+                    in
+                    let lease_e = EStartLeaseExpiration (v, n2, true) in
+                    Fsm.return ~sides:[log_e;log2_e;lease_e] (Slave_steady_state (n2, i2, v))
 	              end
-	      end
-      | Accept(n', i', v) when current_n = n' && i' > current_i ->
-          begin
-            let cu_pred = Store.get_succ_store_i constants.store in
-            Fsm.return (Slave_discovered_other_master (source, cu_pred, n', i'))
-          end
-	  | _ -> log ~me "dropping unexpected %s" (string_of msg) >>= fun () ->
-	      Fsm.return (Slave_waiting_for_prepare (current_i,current_n))
+	        end
+          | Accept(n', i', v) when current_n = n' && i' > current_i ->
+            begin
+              let cu_pred = Store.get_succ_store_i constants.store in
+              Fsm.return (Slave_discovered_other_master (source, cu_pred, n', i'))
+            end
+	      | _ -> 
+            let log_e = explain "dropping unexpected %s" (string_of msg) in
+	        Fsm.return ~sides:[log_e] (Slave_waiting_for_prepare (current_i,current_n))
       end
     | ElectionTimeout n' 
     | LeaseExpired n' ->
-        if n' = current_n 
-        then Fsm.return (Slave_fake_prepare(current_i, current_n))
-        else Fsm.return (Slave_waiting_for_prepare(current_i, current_n))
+      if n' = current_n 
+      then Fsm.return (Slave_fake_prepare(current_i, current_n))
+      else Fsm.return (Slave_waiting_for_prepare(current_i, current_n))
     | FromClient _ -> paxos_fatal constants.me "Slave_waiting_for_prepare cannot handle client requests"
-    
+      
     | Quiesce (sleep,awake) ->
+      begin
         handle_quiesce_request constants.store sleep awake >>= fun () ->
         Fsm.return (Slave_waiting_for_prepare (current_i,current_n) )
-          
+      end
+        
     | Unquiesce ->
-        handle_unquiesce_request constants current_n >>= fun (store_i, vo) ->
-        Fsm.return (Slave_waiting_for_prepare (current_i,current_n) )
-
+      handle_unquiesce_request constants current_n >>= fun (store_i, vo) ->
+      Fsm.return (Slave_waiting_for_prepare (current_i,current_n) )
+            
 
 (* a potential master is waiting for promises and if enough
    promises are received the value is accepted and Accept is broadcasted *)
@@ -290,11 +285,10 @@ let wait_for_promises constants state event =
                   Fsm.return (Promises_check_done state')
             | Promise (n' ,i', limit) -> (* n ' > n *)
                 begin
-		          log ~me "Received Promise from previous incarnation. Bumping n from %s over %s." 
-                    (Sn.string_of n) (Sn.string_of n') 
-		          >>= fun () ->
 		          let new_n = update_n constants n' in
-		          Fsm.return (Election_suggest (new_n,i, wanted))
+                  let log_e = explain "Received Promise from previous incarnation. Bumping n from %s over %s." 
+                    (Sn.string_of n) (Sn.string_of n')  in
+		          Fsm.return ~sides:[log_e] (Election_suggest (new_n,i, wanted))
                 end
             | Nak (n',(n'',i')) when n' < n ->
                 begin
@@ -831,24 +825,20 @@ let rec paxos_produce buffers
     (fun e -> log ~me "ZYX %s" (Printexc.to_string e) >>= fun () -> Lwt.fail e)
 
 
-let section = 
-  let s = Lwt_log.Section.make "PAXOS" in
-  let () = Lwt_log.Section.set_level s Lwt_log.Debug in
-  s 
+
 
 let _execute_effects constants e = 
   match e with
+    | ENop -> Lwt.return ()
     | ELog emit ->
-        if Lwt_log.Section.level section <= Lwt_log.Debug 
-        then
-          let b = Buffer.create 128 in
-          let () = Buffer.add_string b "PURE:" in
-          let () = Buffer.add_string b constants.me in
-          let () = Buffer.add_string b " : " in
-          let () = emit b in
-          Lwt_log.debug (Buffer.contents b) 
-        else
-          Lwt.return ()
+      begin
+        let b = Buffer.create 128 in
+        let () = Buffer.add_string b "PURE:" in
+        let () = Buffer.add_string b constants.me in
+        let () = Buffer.add_string b " : " in
+        let () = emit b in
+        Lwt_log.debug (Buffer.contents b) 
+      end
     | EMCast msg          -> Act.multi_cast constants msg
     | EAccept (v,n,i)     -> constants.on_accept (v,n,i) 
     | ESend (msg, target) -> constants.send msg constants.me target

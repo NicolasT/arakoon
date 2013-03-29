@@ -71,7 +71,7 @@ let slave_steady_state constants state event =
 	    match msg with
 	      | Accept (n',i',v) when (n',i') = (n,i) ->
 	        begin
-	          let reply = Accepted(n,i) in
+
 	          begin
 		        let m_store_i = store # consensus_i () in
 		        begin
@@ -96,6 +96,7 @@ let slave_steady_state constants state event =
 	            end 
               end 
               >>= fun _ ->
+	          let reply = Accepted(n,i) in
               let accept_e = EAccept (v,n,i) in
               let start_e = EStartLeaseExpiration(v,n, true) in
               let send_e = ESend(reply, source) in
@@ -326,7 +327,8 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
         end
       else
         let elections_needed,_ = time_for_elections constants n' maybe_previous in
-        if elections_needed then
+        if elections_needed 
+        then
           begin
             let log_e = explain "slave_wait_for_accept: Elections needed" in
             let el_i = Store.get_succ_store_i constants.store in
@@ -335,10 +337,7 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
             Fsm.return ~sides:[log_e] (Election_suggest (new_n, el_i, el_up))
           end
         else
-          begin
-            Fsm.return (Slave_wait_for_accept (n,i,vo, maybe_previous))
-          end
-            
+          Fsm.return (Slave_wait_for_accept (n,i,vo, maybe_previous))
     | FromClient msg -> paxos_fatal constants.me "slave_wait_for_accept only registered for FromNode"
       
     | Quiesce (sleep,awake) ->
