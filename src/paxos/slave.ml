@@ -211,7 +211,7 @@ let slave_steady_state constants state event =
         
 (* a pending slave that has promised a value to a pending master waits
    for an Accept from the master about this *)
-let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
+let slave_wait_for_accept constants ((n,i, vo, maybe_previous) as state) event =
   match event with 
     | FromNode(msg,source) ->
       begin
@@ -221,13 +221,14 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
             begin
 	          let () = constants.on_witness source i' in
               match handle_prepare constants source n n' i' with
-                | Prepare_dropped sides      -> Fsm.return  ~sides ( Slave_wait_for_accept (n, i,vo, maybe_previous) )
-                | Nak_sent sides             -> Fsm.return  ~sides ( Slave_wait_for_accept (n, i,vo, maybe_previous) )
-                | Promise_sent_up2date sides -> Fsm.return  ~sides ( Slave_wait_for_accept (n',i,vo, maybe_previous) )
+                | Prepare_dropped sides      -> Fsm.return  ~sides ( Slave_wait_for_accept state)
+                | Nak_sent sides             -> Fsm.return  ~sides ( Slave_wait_for_accept state)
+                | Promise_sent_up2date sides -> Fsm.return  ~sides ( Slave_wait_for_accept 
+                                                                       (n',i,vo, maybe_previous))
                 | Promise_sent_needs_catchup sides -> 
                   let i = Store.get_succ_store_i constants.store in
-                  let state = (source, i, n', i') in 
-                  Fsm.return ~sides ( Slave_discovered_other_master state )
+                  let state' = (source, i, n', i') in 
+                  Fsm.return ~sides ( Slave_discovered_other_master state')
             end
           | Accept (n',i',v) when n'=n ->
             begin
@@ -237,11 +238,11 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
               if i' < tlc_i 
               then
                 begin
-                  let log_e = explain
+                  let sides = [explain
                     "slave_wait_for_accept: dropping old accept (i=%s , i'=%s)" 
-                    (Sn.string_of i) (Sn.string_of i')
+                    (Sn.string_of i) (Sn.string_of i')]
                   in
-                  Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n, i, vo, maybe_previous))
+                  Fsm.return ~sides (Slave_wait_for_accept state)
                 end
               else
                 begin
@@ -287,30 +288,30 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
             begin
               if i' > i 
               then
-                let log_e = explain
+                let sides = [explain
                   "slave_wait_for_accept: Got accept from other master with higher i (i: %s , i' %s)" 
-                  (Sn.string_of i) (Sn.string_of i')  
+                  (Sn.string_of i) (Sn.string_of i')]  
                 in
                 let cu_pred = Store.get_succ_store_i constants.store in
                 let new_state = (source, cu_pred, n', i') in 
-                Fsm.return ~sides:[log_e] (Slave_discovered_other_master new_state) 
+                Fsm.return ~sides (Slave_discovered_other_master new_state) 
               else
-                let log_e = explain "slave_wait_for_accept: dropping old accept: %s " (string_of msg) in
-	            Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n,i,vo, maybe_previous))
+                let sides = [explain "slave_wait_for_accept: dropping old accept: %s " (string_of msg)] in
+	            Fsm.return ~sides (Slave_wait_for_accept (n,i,vo, maybe_previous))
 	        end
 	      | Accept (n',i',v) ->
 	        begin
-              let log_e = explain "slave_wait_for_accept : foreign(%s,%s) <> (%s,%s) sending fake prepare" 
-		        (Sn.string_of n') (Sn.string_of i') (Sn.string_of n) (Sn.string_of i) 
+              let sides = [explain "slave_wait_for_accept : foreign(%s,%s) <> (%s,%s) sending fake prepare" 
+		        (Sn.string_of n') (Sn.string_of i') (Sn.string_of n) (Sn.string_of i)] 
               in
-	          Fsm.return ~sides:[log_e] (Slave_fake_prepare (i,n'))
+	          Fsm.return ~sides (Slave_fake_prepare (i,n'))
 	        end
 	      | Promise _
           | Nak _
           | Accepted _ ->
 	        begin
-              let log_e = explain "dropping : %s" (string_of msg) in
-	          Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n,i,vo, maybe_previous))
+              let sides = [explain "dropping : %s" (string_of msg)] in
+	          Fsm.return ~sides (Slave_wait_for_accept (n,i,vo, maybe_previous))
 	        end
       end
     | ElectionTimeout n' 
@@ -320,21 +321,21 @@ let slave_wait_for_accept constants (n,i, vo, maybe_previous) event =
         begin
           let ns = (Sn.string_of n) 
           and ns' = (Sn.string_of n') in
-          let log_e = explain
-            "slave_wait_for_accept: Ingoring old lease expiration (n'=%s n=%s)" ns' ns 
+          let sides = [explain
+            "slave_wait_for_accept: Ingoring old lease expiration (n'=%s n=%s)" ns' ns ]
           in
-          Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n,i,vo, maybe_previous))
+          Fsm.return ~sides (Slave_wait_for_accept (n,i,vo, maybe_previous))
         end
       else
         let elections_needed,_ = time_for_elections constants n' maybe_previous in
         if elections_needed 
         then
           begin
-            let log_e = explain "slave_wait_for_accept: Elections needed" in
             let el_i = Store.get_succ_store_i constants.store in
             let el_up = constants.get_value el_i in
             let new_n = update_n constants n in
-            Fsm.return ~sides:[log_e] (Election_suggest (new_n, el_i, el_up))
+            let sides = [explain "slave_wait_for_accept: Elections needed"] in
+            Fsm.return ~sides (Election_suggest (new_n, el_i, el_up))
           end
         else
           Fsm.return (Slave_wait_for_accept (n,i,vo, maybe_previous))
@@ -423,6 +424,6 @@ let slave_discovered_other_master constants state () =
             "forced slave, back to slave mode" 
           end
       in
-      let log_e = explain "slave_discovered_other_master: %s" m in
-      Fsm.return ~sides:[log_e] s
+      let sides = [explain "slave_discovered_other_master: %s" m] in
+      Fsm.return ~sides s
     end
