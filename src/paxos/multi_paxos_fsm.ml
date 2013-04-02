@@ -857,6 +857,7 @@ let _execute_effects constants e =
     | EStartElectionTimeout n -> start_election_timeout constants n
 
     | EConsensus (finished_funs, v,n,i) ->
+      begin
         constants.on_consensus (v,n,i) >>= fun (urs: Store.update_result list) ->
         begin
           let rec loop ffs urs =
@@ -868,7 +869,13 @@ let _execute_effects constants e =
               | _,_ -> failwith "mismatch"
           in
           loop finished_funs urs 
-        end 
+        end
+      end 
+    | EConsensusX(v,n,i) ->
+      begin
+        constants.on_consensus(v,n,i) >>= fun _ ->
+        Lwt.return ()
+      end
     | EGen f -> f ()
 
 

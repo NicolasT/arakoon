@@ -95,4 +95,5 @@ type effect =
   | EStartLeaseExpiration of (Value.t * n * bool (* is slave *))
   | EStartElectionTimeout of n
   | EConsensus of (master_option * Value.t * n * i)
+  | EConsensusX of (Value.t * n * i)
   | EGen of (unit -> unit Lwt.t)
