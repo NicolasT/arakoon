@@ -256,7 +256,7 @@ let wait_for_promises constants state event =
         in
         let drop msg reason = 
           let log_e = explain "dropping %s because: %s" (string_of msg) reason in
-          Fsm.return ~sides:[log_e0;log_e] (Wait_for_promises state) 
+          Fsm.pure ~sides:[log_e0;log_e] (Wait_for_promises state) 
         in
         begin
           match msg with
@@ -269,7 +269,8 @@ let wait_for_promises constants state event =
                 in
                 drop msg reason
             | Promise (n' ,new_i, limit) when n' = n ->
-                if List.mem source who_voted then
+                if List.mem source who_voted 
+                then
                   drop msg "duplicate promise"
                 else
                   let v_lims' = 
@@ -286,71 +287,67 @@ let wait_for_promises constants state event =
                     | None -> Some (source,new_i)
 		          in
                   let state' = (n, i, who_voted', v_lims', new_ilim) in
-                  Fsm.return (Promises_check_done state')
+                  Fsm.pure (Promises_check_done state')
             | Promise (n' ,i', limit) -> (* n ' > n *)
                 begin
 		          let new_n = update_n constants n' in
                   let log_e = explain "Received Promise from previous incarnation. Bumping n from %s over %s." 
                     (Sn.string_of n) (Sn.string_of n')  in
-		          Fsm.return ~sides:[log_e] (Election_suggest (new_n,i, wanted))
+		          Fsm.pure ~sides:[log_e] (Election_suggest (new_n,i, wanted))
                 end
             | Nak (n',(n'',i')) when n' < n ->
                 begin
-		          log ~me "wait_for_promises:: received old %S (ignoring)" (string_of msg) 
-		          >>= fun () ->
-		          Fsm.return (Wait_for_promises state)
+		          let log_e = 
+                    explain "wait_for_promises:: received old %S (ignoring)" (string_of msg) 
+		          in
+		          Fsm.pure ~sides:[log_e0;log_e] (Wait_for_promises state)
                 end
             | Nak (n',(n'',i')) when n' > n ->
                 begin
-		          log ~me "Received Nak from previous incarnation. Bumping n from %s over %s." 
-                    (Sn.string_of n) (Sn.string_of n') 
-		          >>= fun () ->
+		          let log_e = explain "Received Nak from previous incarnation. Bumping n from %s over %s." 
+                    (Sn.string_of n) (Sn.string_of n') in
 		          let new_n = update_n constants n' in
-		          Fsm.return (Election_suggest (new_n,i, wanted))
+		          Fsm.pure ~sides:[log_e;log_e0] (Election_suggest (new_n,i, wanted))
                 end
             | Nak (n',(n'',i')) -> (* n' = n *)
-                begin
-		          log ~me "wait_for_promises:: received %S for my Prep(i=%s, _) " 
-                    (string_of msg) 
-                    (Sn.string_of i)
-		          >>= fun () ->
-		          if am_forced_master constants me
-		          then
-		            begin
-                      log ~me "wait_for_promises; forcing new master suggest" >>= fun () ->
-                      let n3 = update_n constants (max n n'') in
-                      Fsm.return (Forced_master_suggest (n3,i))
-		            end
-		          else 
-                    (* if is_election constants 
-                       then *)
-                    begin
-                      log ~me "wait_for_promises; discovered other node" 
-                      >>= fun () ->
-                      if i' > i 
-                      then
-                        let cu_pred = Store.get_succ_store_i constants.store in
-                        Fsm.return (Slave_discovered_other_master (source,cu_pred,n'',i'))
-                      else
-			            let new_n = update_n constants (max n n'') in
-			            Fsm.return (Election_suggest (new_n,i, wanted))
-                    end
-                 (* else (* forced_slave *) (* this state is impossible?! *)
-                    begin
-                      log ~me "wait_for_promises; forced slave back waiting for prepare" >>= fun () ->
-                      Lwt.return (Slave_waiting_for_prepare (i,n))
-                    end *)
+              begin
+		        let log_e0 = explain "wait_for_promises:: received %S for my Prep(i=%s, _) " 
+                  (string_of msg) 
+                  (Sn.string_of i)
+                in
+		        if am_forced_master constants me
+		        then
+                  let log_e =  explain "wait_for_promises; forcing new master suggest" in
+                  let n3 = update_n constants (max n n'') in
+                  Fsm.pure ~sides:[log_e0;log_e] (Forced_master_suggest (n3,i))
+		        else 
+                  (* if is_election constants 
+                     then *)
+                  begin
+                    let log_e = explain "wait_for_promises; discovered other node" in
+                    if i' > i 
+                    then
+                      let cu_pred = Store.get_succ_store_i constants.store in
+                      Fsm.pure ~sides:[log_e0;log_e] (Slave_discovered_other_master (source,cu_pred,n'',i'))
+                    else
+			          let new_n = update_n constants (max n n'') in
+			          Fsm.pure ~sides:[log_e0;log_e]  (Election_suggest (new_n,i, wanted))
+                  end
+              (* else (* forced_slave *) (* this state is impossible?! *)
+                 begin
+                 log ~me "wait_for_promises; forced slave back waiting for prepare" >>= fun () ->
+                 Lwt.return (Slave_waiting_for_prepare (i,n))
+                 end *)
               end
             | Prepare (n',i') ->
               begin
                 if (am_forced_master constants me) && n' > 0L
 	              then
 		              begin
-		                log ~me "wait_for_promises:dueling; forcing new master suggest" >>= fun () ->
-		                let reply = Nak (n', (n,i))  in
-				        constants.send reply me source >>= fun () ->
+		                let log_e = explain "wait_for_promises:dueling; forcing new master suggest" in
+                        let send_e = ESend(Nak(n',(n,i)), source) in
 				        let new_n = update_n constants n' in
-				        Fsm.return (Forced_master_suggest (new_n, i))
+				        Fsm.pure ~sides:[log_e0;log_e;send_e] (Forced_master_suggest (new_n, i))
 				      end
 		        else
                   match handle_prepare constants source n n' i' with
@@ -358,53 +355,58 @@ let wait_for_promises constants state event =
                       let log_e = explain"wait_for_promises: resending prepare" in
                       let send_e = ESend (Prepare(n, i), source) in
                       let sides' = sides @ [log_e;send_e] in
-                      Fsm.return ~sides:sides' (Wait_for_promises state)
-                    | Prepare_dropped sides      -> Fsm.return ~sides (Wait_for_promises state)
+                      Fsm.pure ~sides:sides' (Wait_for_promises state)
+                    | Prepare_dropped sides      -> Fsm.pure ~sides (Wait_for_promises state)
                     | Promise_sent_up2date sides ->
 		                begin
                           let last = constants.tlog_coll # get_last () in
-			              Fsm.return ~sides (Slave_wait_for_accept (n', i, None, last))
+			              Fsm.pure ~sides (Slave_wait_for_accept (n', i, None, last))
 		                end
 		            | Promise_sent_needs_catchup sides ->
 		              let i = Store.get_succ_store_i constants.store in
-		              Fsm.return ~sides (Slave_discovered_other_master (source, i, n', i'))
+		              Fsm.pure ~sides (Slave_discovered_other_master (source, i, n', i'))
               end
             | Accept (n',_i,_v) when n' < n ->
                 begin
                   if i < _i
                   then
                     begin
-                      log ~me "wait_for_promises: still have an active master (received %s) -> catching up from master"  (string_of msg) >>= fun () ->
-                      Fsm.return (Slave_discovered_other_master (source, i, n', _i))
+                      let log_e = explain 
+                        "wait_for_promises: still have an active master (received %s) -> catching up from master"  
+                        (string_of msg) 
+                      in
+                      Fsm.pure ~sides:[log_e] (Slave_discovered_other_master (source, i, n', _i))
 		            end
                 else
-		            log ~me "wait_for_promises: ignoring old Accept %s" (Sn.string_of n') 
-		             >>= fun () ->
-		          Fsm.return (Wait_for_promises state)
+		            let log_e = explain "wait_for_promises: ignoring old Accept %s" (Sn.string_of n') in
+		            Fsm.pure ~sides:[log_e] (Wait_for_promises state)
               end
             | Accept (n',_i,_v) ->
               if n' = n && _i < i 
               then
 		        begin
-                  log ~me "wait_for_promises: ignoring %s (my i is %s)" (string_of msg) (Sn.string_of i) >>= fun () ->
-                  Fsm.return (Wait_for_promises state)
+                  let log_e = explain "wait_for_promises: ignoring %s (my i is %s)" 
+                    (string_of msg) (Sn.string_of i) 
+                  in
+                  Fsm.pure ~sides:[log_e] (Wait_for_promises state)
 		        end
               else
 		        begin
-                  log ~me "wait_for_promises: received %S -> back to fake prepare"  (string_of msg) >>= fun () ->
-                  Fsm.return (Slave_fake_prepare (i,n))
+                  let log_e = explain "wait_for_promises: received %S -> back to fake prepare"  (string_of msg) in
+                  Fsm.pure ~sides:[log_e] (Slave_fake_prepare (i,n))
 		        end
             | Accepted (n',_i) when n' < n ->
               begin
-		        log ~me "wait_for_promises: ignoring old Accepted %s" (Sn.string_of n') >>= fun () ->
-		        Fsm.return (Wait_for_promises state)
+                let log_e = explain "wait_for_promises: ignoring old Accepted %s" (Sn.string_of n') in
+		        Fsm.pure ~sides:[log_e] (Wait_for_promises state)
               end
             | Accepted (n',_i) -> (* n' >= n *)
               begin 
-		        log ~me "Received Nak from previous incarnation. Bumping n from %s over %s." (Sn.string_of n) (Sn.string_of n') 
-		        >>= fun () ->
+		        let log_e = explain "Received Nak from previous incarnation. Bumping n from %s over %s." 
+                  (Sn.string_of n) (Sn.string_of n') 
+                in
 		        let new_n = update_n constants n' in
-		        Fsm.return (Election_suggest (new_n,i, wanted))
+		        Fsm.pure ~sides:[log_e] (Election_suggest (new_n,i, wanted))
               end
         end
       end
@@ -423,27 +425,27 @@ let wait_for_promises constants state event =
       if n' = n && not ( constants.store # quiesced () ) 
       then
 	    begin
-          log ~me "wait_for_promises: election timeout, restart from scratch"	  
-	      >>= fun () ->
-	      Fsm.return (Election_suggest (n,i, wanted))
+          let log_e = explain "wait_for_promises: election timeout, restart from scratch" in
+	      Fsm.pure ~sides:[log_e] (Election_suggest (n,i, wanted))
 	    end
       else
-	    begin
-	      Fsm.return (Wait_for_promises state)
-	    end
+	    Fsm.pure (Wait_for_promises state)
     | LeaseExpired _ ->
-        Lwt_log.debug "Ignoring lease expiration" >>= fun () ->
-        Fsm.return (Wait_for_promises state)
-    | FromClient _ -> 
-        paxos_fatal me "wait_for_promises: don't want FromClient"
+      let log_e = explain "Ignoring lease expiration" in
+      Fsm.pure ~sides:[log_e] (Wait_for_promises state)
+    | FromClient _ -> failwith "wait_for_promises: don't want FromClient"
           
     | Quiesce (sleep,awake) ->
-        handle_quiesce_request constants.store sleep awake >>= fun () ->
-        Fsm.return (Wait_for_promises state)
+      let e = EGen(fun() ->
+        handle_quiesce_request constants.store sleep awake)
+      in
+      Fsm.pure ~sides:[e] (Wait_for_promises state)
       
     | Unquiesce ->
-        handle_unquiesce_request constants n >>= fun (store_i, vo) ->
-        Fsm.return (Wait_for_promises state)
+      let e = EGen(fun () ->
+        handle_unquiesce_request constants n >>= fun (store_i, vo) -> Lwt.return ())
+      in
+      Fsm.pure ~sides:[e] (Wait_for_promises state)
       
   
   
@@ -695,7 +697,7 @@ let machine constants =
     (Unit_arg (Slave.slave_discovered_other_master constants state), nop)
 
   | Wait_for_promises state ->
-    (Msg_arg (wait_for_promises constants state), node_and_inject_and_timeout)
+    (PMsg_arg (wait_for_promises constants state), node_and_inject_and_timeout)
   | Promises_check_done state ->
     (Unit_arg (promises_check_done constants state), nop)
   | Wait_for_accepteds state ->
@@ -706,7 +708,7 @@ let machine constants =
   | Master_consensus state ->
     (PUnit_arg (Master.master_consensus constants state), nop)
   | Stable_master state ->
-    (Msg_arg (Master.stable_master constants state), full)
+    (PMsg_arg (Master.stable_master constants state), full)
   | Master_dictate state ->
     (PUnit_arg (Master.master_dictate constants state), nop)
 

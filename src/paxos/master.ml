@@ -49,7 +49,7 @@ let stable_master constants ((v',n,new_i) as current_state) = function
         let log_e = explain "stable_master: ignoring old lease_expired with n:%s < n:%s" 
 	      (Sn.string_of n') (Sn.string_of n)
         in
-	    Fsm.return ~sides:[log_e] (Stable_master current_state)
+	    Fsm.pure ~sides:[log_e] (Stable_master current_state)
       else
 	    begin
 	      let extend () = 
@@ -57,7 +57,7 @@ let stable_master constants ((v',n,new_i) as current_state) = function
             let v = Value.create_master_value (me,0L) in
             let ff = fun _ -> Lwt.return () in
 		    (* TODO: we need election timeout as well here *)
-	        Fsm.return ~sides:[log_e] (Master_dictate ([ff], v,n,new_i))
+	        Fsm.pure ~sides:[log_e] (Master_dictate ([ff], v,n,new_i))
 	      in
 	      match constants.master with
 	        | Preferred ps when not (List.mem me ps) ->
@@ -68,7 +68,7 @@ let stable_master constants ((v',n,new_i) as current_state) = function
 	          if diff < (Sn.of_int 5) 
               then
                 let log_e = explain "stable_master: handover to %s" p in
-		        Fsm.return ~sides:[log_e] (Stable_master current_state)
+		        Fsm.pure ~sides:[log_e] (Stable_master current_state)
 	          else
 		        extend () 
 	        | _ -> extend()
@@ -78,7 +78,7 @@ let stable_master constants ((v',n,new_i) as current_state) = function
           let updates, finished_funs = List.split ufs in
           let synced = List.fold_left (fun acc u -> acc || Update.is_synced u) false updates in
           let value = Value.create_client_value updates synced in
-	      Fsm.return (Master_dictate (finished_funs, value, n, new_i))
+	      Fsm.pure (Master_dictate (finished_funs, value, n, new_i))
         end
     | FromNode (msg,source) ->
       begin
@@ -100,21 +100,21 @@ let stable_master constants ((v',n,new_i) as current_state) = function
 		          else
 		            Stable_master current_state
                   in
-                  Fsm.return ~sides state'
+                  Fsm.pure ~sides state'
 		        end
 	          else
 		        begin
 		          match handle_prepare constants source n n' i' with
 		            | Nak_sent sides
-		            | Prepare_dropped sides      -> Fsm.return ~sides  (Stable_master current_state )
+		            | Prepare_dropped sides      -> Fsm.pure ~sides  (Stable_master current_state )
 		            | Promise_sent_up2date sides ->
 		              begin
                         let l_val = constants.tlog_coll # get_last () in
-			            Fsm.return ~sides (Slave_wait_for_accept (n', new_i, None, l_val))
+			            Fsm.pure ~sides (Slave_wait_for_accept (n', new_i, None, l_val))
 		              end
 		            | Promise_sent_needs_catchup sides ->
                       let i = Store.get_succ_store_i constants.store in
-                      Fsm.return ~sides (Slave_discovered_other_master (source, i, n', i'))
+                      Fsm.pure ~sides (Slave_discovered_other_master (source, i, n', i'))
 		        end
 	        end
           | Accepted(n,i) -> 
@@ -123,25 +123,27 @@ let stable_master constants ((v',n,new_i) as current_state) = function
                  TODO: should not be solved on this level.
               *)
               let () = constants.on_witness source i in
-              Fsm.return (Stable_master current_state)
+              Fsm.pure (Stable_master current_state)
 	      | _ ->
 	          begin
                 let log_e = explain "stable_master received %S: dropping" (string_of msg) in
-	            Fsm.return ~sides:[log_e] (Stable_master current_state)
+	            Fsm.pure ~sides:[log_e] (Stable_master current_state)
 	          end
       end
     | ElectionTimeout n' -> 
       begin
         let log_e = explain "ignoring election timeout (%s)" (Sn.string_of n') in          
-        Fsm.return ~sides:[log_e] (Stable_master current_state)
+        Fsm.pure ~sides:[log_e] (Stable_master current_state)
       end
     | Quiesce (sleep,awake) ->
       begin
-        fail_quiesce_request constants.store sleep awake Quiesced_fail_master >>= fun () ->
-        Fsm.return (Stable_master current_state)
+        let e = EGen(fun() ->
+          fail_quiesce_request constants.store sleep awake Quiesced_fail_master)
+        in
+        Fsm.pure ~sides:[e] (Stable_master current_state)
       end
         
-    | Unquiesce -> Lwt.fail (Failure "Unexpected unquiesce request while running as")
+    | Unquiesce -> failwith "Unexpected unquiesce request while running as master"
                 
 (* a master informes the others of a new value by means of Accept
    messages and then waits for Accepted responses *)
