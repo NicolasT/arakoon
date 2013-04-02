@@ -66,46 +66,35 @@ let slave_steady_state constants ((n,i,previous) as state) event =
       begin
 	    match msg with
 	      | Accept (n',i',v) when (n',i') = (n,i) ->
-	        begin
-
-	          begin
-		        let m_store_i = store # consensus_i () in
-		        begin
-		          match m_store_i with
-		            | None -> constants.on_consensus (previous, n, Sn.pred i)
-		            | Some store_i ->
-                      let prev_i = Sn.pred i in
-                      if (Sn.compare store_i (Sn.pred prev_i) ) == 0
-                      then
-			            constants.on_consensus (previous, n,prev_i) 
-                      else
-			            if Sn.compare store_i prev_i == 0
-			            then 
-                          begin
-			                Lwt_log.debug_f "Preventing re-push of : %s. Store at %s" 
-                              (Sn.string_of prev_i) (Sn.string_of store_i) >>= fun () -> 
-                            Lwt.return [Store.Ok None]
-                          end
-			            else
-			              Llio.lwt_failfmt "Illegal push requested: %s. Store at %s" 
-                            (Sn.string_of prev_i) (Sn.string_of store_i)      
-	            end 
-              end 
-              >>= fun _ ->
+            begin
+              let store_e = 
+		        match store # consensus_i ()  with
+		          | None -> EConsensusX (previous, n, Sn.pred i)
+		          | Some store_i ->
+                    let prev_i = Sn.pred i in
+                    if (Sn.compare store_i (Sn.pred prev_i) ) == 0
+                    then EConsensusX (previous, n,prev_i) 
+                    else
+			          if Sn.compare store_i prev_i == 0
+			          then explain "Preventing re-push of : %s. Store at %s" 
+                        (Sn.string_of prev_i) (Sn.string_of store_i) 
+			          else failwith (Printf.sprintf "Illegal push requested: %s. Store at %s" 
+                                       (Sn.string_of prev_i) (Sn.string_of store_i))
+              in
 	          let reply = Accepted(n,i) in
               let accept_e = EAccept (v,n,i) in
               let start_e = EStartLeaseExpiration(v,n, true) in
               let send_e = ESend(reply, source) in
               let log_e = explain "steady_state :: replying with %S" (string_of reply) in
-              let sides = [accept_e;start_e; send_e; log_e] in
-              Fsm.return ~sides (Slave_steady_state (n, Sn.succ i, v))
+              let sides = [store_e;accept_e;start_e; send_e; log_e] in
+              Fsm.pure ~sides (Slave_steady_state (n, Sn.succ i, v))
 	        end
 	      | Accept (n',i',v) when (n'<=n && i'<i) || (n'< n && i'=i)  ->
 	        begin
               let sides = [explain "slave_steady_state received old %S for my n, ignoring" 
 		        (string_of msg)]
               in
-	          Fsm.return ~sides (Slave_steady_state state)
+	          Fsm.pure ~sides (Slave_steady_state state)
 	        end
 	      | Accept (n',i',v) ->
 	        begin
@@ -115,32 +104,32 @@ let slave_steady_state constants ((n,i,previous) as state) event =
                 "slave_steady_state foreign (%s,%s) from %s <> local (%s,%s) discovered other master"
 		        (Sn.string_of n') (Sn.string_of i') source (Sn.string_of  n) (Sn.string_of  i)]
               in
-              Fsm.return ~sides (Slave_discovered_other_master new_state ) 
+              Fsm.pure ~sides (Slave_discovered_other_master new_state ) 
 	        end
 	      | Prepare(n',i') ->
 	        begin
               match handle_prepare constants source n n' i' with
 		        | Prepare_dropped sides 
-		        | Nak_sent sides              -> Fsm.return ~sides (Slave_steady_state state)
+		        | Nak_sent sides              -> Fsm.pure ~sides (Slave_steady_state state)
 		        | Promise_sent_up2date sides  ->
 		          let next_i = Store.get_succ_store_i constants.store in
-		          Fsm.return ~sides (Slave_wait_for_accept (n', next_i, None, None))
+		          Fsm.pure ~sides (Slave_wait_for_accept (n', next_i, None, None))
 		        | Promise_sent_needs_catchup sides ->
 		          let i = Store.get_succ_store_i constants.store in
 		          let new_state = (source, i, n', i') in 
-		          Fsm.return ~sides (Slave_discovered_other_master new_state ) 
+		          Fsm.pure ~sides (Slave_discovered_other_master new_state ) 
 	        end
 	      | Nak _ 
 	      | Promise _ 
 	      | Accepted _ ->
             let sides = [explain "steady state :: dropping %s" (string_of msg)] in
-	        Fsm.return ~sides (Slave_steady_state state)
+	        Fsm.pure ~sides (Slave_steady_state state)
 	          
       end
     | ElectionTimeout n' ->
       begin
         let sides = [explain "steady state :: ignoring election timeout"] in
-        Fsm.return ~sides (Slave_steady_state state)
+        Fsm.pure  ~sides (Slave_steady_state state)
       end
     | LeaseExpired n' -> 
       let ns  = (Sn.string_of n) 
@@ -149,7 +138,7 @@ let slave_steady_state constants ((n,i,previous) as state) event =
       then 
 	    begin
           let sides = [explain "steady state: ignoring old lease expiration (n'=%s,n=%s)" ns' ns] in
-	      Fsm.return ~sides (Slave_steady_state (n,i,previous))
+	      Fsm.pure ~sides (Slave_steady_state (n,i,previous))
 	    end
       else
 	    begin 
@@ -166,14 +155,14 @@ let slave_steady_state constants ((n,i,previous) as state) event =
 		        end
               in
               let sides = [explain "ELECTIONS NEEDED"] in
-	          Fsm.return ~sides (Election_suggest (new_n, el_i, el_up ))
+	          Fsm.pure ~sides (Election_suggest (new_n, el_i, el_up ))
 	        end
 	      else
 	        begin
               let sides = [explain
                 "slave_steady_state ignoring lease expiration (n'=%s,n=%s) %s" ns' ns msg]
               in
-	          Fsm.return ~sides (Slave_steady_state state)
+	          Fsm.pure ~sides (Slave_steady_state state)
 	        end
 	    end
     | FromClient ufs -> 
@@ -183,26 +172,35 @@ let slave_steady_state constants ((n,i,previous) as state) event =
 	         that allows clients to get through before the node became a slave
 	         but I know I'm a slave now, so I let the update fail.
           *)      
-        let updates,finished_funs = List.split ufs in
-        let result = Store.Update_fail (Arakoon_exc.E_NOT_MASTER, "Not_Master") in
-        let rec loop = function
-          | []       -> Lwt.return ()
-          | f :: ffs -> f result >>= fun () ->
-            loop ffs
+        let e = EGen(fun () ->
+          let updates,finished_funs = List.split ufs in
+          let result = Store.Update_fail (Arakoon_exc.E_NOT_MASTER, "Not_Master") in
+          let rec loop = function
+            | []       -> Lwt.return ()
+            | f :: ffs -> f result >>= fun () ->
+              loop ffs
+          in
+          loop finished_funs )
         in
-        loop finished_funs >>= fun () ->
-        Fsm.return  (Slave_steady_state state)
+        Fsm.pure ~sides:[e] (Slave_steady_state state)
       end
     | Quiesce (sleep,awake) ->
       begin
-        handle_quiesce_request constants.store sleep awake >>= fun () ->
-        Fsm.return (Slave_steady_state state)
+        let e = EGen(fun () ->
+          handle_quiesce_request constants.store sleep awake 
+        ) in
+        
+        Fsm.pure ~sides:[e] (Slave_steady_state state)
       end
         
     | Unquiesce ->
       begin
-        handle_unquiesce_request constants n >>= fun (store_i, vo) ->
-        Fsm.return  (Slave_steady_state state)
+        let e = EGen (fun () ->
+          handle_unquiesce_request constants n >>= fun (store_i, vo) ->
+          Lwt.return ()
+        )
+        in
+        Fsm.pure ~sides:[e] (Slave_steady_state state)
       end
         
 (* a pending slave that has promised a value to a pending master waits
