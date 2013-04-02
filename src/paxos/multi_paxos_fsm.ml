@@ -688,7 +688,7 @@ let machine constants =
   | Slave_waiting_for_prepare state ->
     (PMsg_arg (slave_waiting_for_prepare constants state), node_and_inject_and_timeout)
   | Slave_wait_for_accept state ->
-    (Msg_arg (Slave.slave_wait_for_accept constants state), node_and_inject_and_timeout)
+    (PMsg_arg (Slave.slave_wait_for_accept constants state), node_and_inject_and_timeout)
   | Slave_steady_state state ->
     (Msg_arg (Slave.slave_steady_state constants state), full)
   | Slave_discovered_other_master state ->
