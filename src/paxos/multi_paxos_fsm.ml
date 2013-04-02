@@ -96,7 +96,7 @@ let read_only constants state () =
 
 (* a pending slave that is waiting for a prepare or a nak
    in order to discover a master *)
-let slave_waiting_for_prepare constants ( (current_i:Sn.t),(current_n:Sn.t)) event =
+let slave_waiting_for_prepare constants (((current_i:Sn.t),(current_n:Sn.t))as state) event =
   match event with 
     | FromNode(msg,source) ->
       begin
@@ -105,27 +105,26 @@ let slave_waiting_for_prepare constants ( (current_i:Sn.t),(current_n:Sn.t)) eve
 	        begin
               match handle_prepare constants source current_n n' i' with
 		        | Nak_sent sides
-		        | Prepare_dropped sides ->
-		          Fsm.return ~sides ( Slave_waiting_for_prepare(current_i, current_n ) )
+		        | Prepare_dropped sides -> Fsm.pure ~sides (Slave_waiting_for_prepare state)
 		        | Promise_sent_up2date sides ->
                   begin
 		            let last = constants.tlog_coll # get_last () in
-		            Fsm.return ~sides (Slave_wait_for_accept (n', current_i, None, last))
+		            Fsm.pure ~sides (Slave_wait_for_accept (n', current_i, None, last))
                   end
 		        | Promise_sent_needs_catchup sides ->
 		          let i = Store.get_succ_store_i constants.store in
 		          let state = (source, i, n',i') in 
-		          Fsm.return ~sides (Slave_discovered_other_master state)
+		          Fsm.pure ~sides (Slave_discovered_other_master state)
 	        end
 	      | Nak(n',(n2, i2)) when n' = -1L ->
 	        begin
               let cu_pred = Store.get_succ_store_i constants.store in
-              Fsm.return (Slave_discovered_other_master (source, cu_pred, n2, i2))
+              Fsm.pure (Slave_discovered_other_master (source, cu_pred, n2, i2))
 	        end
 	      | Nak(n',(n2, i2)) when i2 > current_i ->
 	        begin
               let cu_pred =  Store.get_succ_store_i constants.store in
-              Fsm.return (Slave_discovered_other_master (source, cu_pred, n2, i2))
+              Fsm.pure (Slave_discovered_other_master (source, cu_pred, n2, i2))
 	        end
 	      | Nak(n',(n2, i2)) when i2 = current_i ->
 	        begin
@@ -133,41 +132,46 @@ let slave_waiting_for_prepare constants ( (current_i:Sn.t),(current_n:Sn.t)) eve
               (* pick in @ steady state *)
 	          match constants.get_value i2 with
                 | None ->
-	              Fsm.return ~sides:[log_e] (Slave_waiting_for_prepare (i2,current_n) )
+	              Fsm.pure ~sides:[log_e] (Slave_waiting_for_prepare (i2,current_n) )
                 | Some v ->
                   begin
                     let log2_e = explain "reentering steady state @(%s,%s)" 
 		              (Sn.string_of n2) (Sn.string_of i2) 
                     in
                     let lease_e = EStartLeaseExpiration (v, n2, true) in
-                    Fsm.return ~sides:[log_e;log2_e;lease_e] (Slave_steady_state (n2, i2, v))
+                    Fsm.pure ~sides:[log_e;log2_e;lease_e] (Slave_steady_state (n2, i2, v))
 	              end
 	        end
           | Accept(n', i', v) when current_n = n' && i' > current_i ->
             begin
               let cu_pred = Store.get_succ_store_i constants.store in
-              Fsm.return (Slave_discovered_other_master (source, cu_pred, n', i'))
+              Fsm.pure (Slave_discovered_other_master (source, cu_pred, n', i'))
             end
 	      | _ -> 
             let log_e = explain "dropping unexpected %s" (string_of msg) in
-	        Fsm.return ~sides:[log_e] (Slave_waiting_for_prepare (current_i,current_n))
+	        Fsm.pure ~sides:[log_e] (Slave_waiting_for_prepare state)
       end
     | ElectionTimeout n' 
     | LeaseExpired n' ->
       if n' = current_n 
-      then Fsm.return (Slave_fake_prepare(current_i, current_n))
-      else Fsm.return (Slave_waiting_for_prepare(current_i, current_n))
-    | FromClient _ -> paxos_fatal constants.me "Slave_waiting_for_prepare cannot handle client requests"
+      then Fsm.pure (Slave_fake_prepare state)
+      else Fsm.pure (Slave_waiting_for_prepare state)
+    | FromClient _ -> (failwith "Slave_waiting_for_prepare cannot handle client requests")
       
     | Quiesce (sleep,awake) ->
       begin
-        handle_quiesce_request constants.store sleep awake >>= fun () ->
-        Fsm.return (Slave_waiting_for_prepare (current_i,current_n) )
+        let e = EGen (fun () ->
+          handle_quiesce_request constants.store sleep awake)
+        in
+        Fsm.pure ~sides:[e] (Slave_waiting_for_prepare state )
       end
         
     | Unquiesce ->
-      handle_unquiesce_request constants current_n >>= fun (store_i, vo) ->
-      Fsm.return (Slave_waiting_for_prepare (current_i,current_n) )
+      let e = EGen(fun () ->
+        handle_unquiesce_request constants current_n >>= fun (store_i, vo) ->
+        Lwt.return ())
+      in
+      Fsm.pure ~sides:[e] (Slave_waiting_for_prepare state)
             
 
 (* a potential master is waiting for promises and if enough
@@ -682,7 +686,7 @@ let machine constants =
   | Slave_fake_prepare i ->
     (PUnit_arg (Slave.slave_fake_prepare constants i), nop)
   | Slave_waiting_for_prepare state ->
-    (Msg_arg (slave_waiting_for_prepare constants state), node_and_inject_and_timeout)
+    (PMsg_arg (slave_waiting_for_prepare constants state), node_and_inject_and_timeout)
   | Slave_wait_for_accept state ->
     (Msg_arg (Slave.slave_wait_for_accept constants state), node_and_inject_and_timeout)
   | Slave_steady_state state ->
