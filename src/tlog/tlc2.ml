@@ -263,6 +263,7 @@ module F = struct
   let fn_of t = t.fn
   let oc_of t = t.oc
   let fsync t = Lwt_unix.fsync t.fd
+  let flush t = Lwt_io.flush t.oc
   let close t = Lwt_io.close t.oc
 end
 
@@ -604,7 +605,7 @@ object(self: # tlog_collection)
                   (Log_extra.string_option2s marker) (Sn.string_of i) node_id  
               end
       end >>= fun () ->
-      F.fsync file >>= fun () ->
+      F.flush file >>= fun () ->
       F.close file 
     end
 
