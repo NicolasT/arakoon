@@ -97,13 +97,16 @@ class TestCmdTools:
         cluster = self._getCluster()
         cluster.start()
         self._assert_n_running(3)
-
+        logging.info("3 servers running, going to restart")
         cluster.restart()
         #@TODO check if the pids are different
+        logging.info("restarted")
         self._assert_n_running(3)
+        logging.info("again, 3 servers running")
         cluster.stop()
+        logging.info("stopped")
         self._assert_n_running(0)
-
+        logging.info("restart when stopped")
         cluster.restart()
         self._assert_n_running(3)
 
