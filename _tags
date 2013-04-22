@@ -24,6 +24,11 @@ true: package(dynlink)
 "src/plugins": include
 "examples/ocaml": include
 "src/main" : include
+"src/paxos/act.ml" : use_explain_macro
+"src/paxos/multi_paxos.ml" : use_explain_macro
+"src/paxos/master.ml" : use_explain_macro
+"src/paxos/multi_paxos_fsm.ml" : use_explain_macro
+"src/paxos/multi_paxos_test.ml" : use_explain_macro
 <**/arakoon.*{byte,native}>: is_main
 <**/nursery.*{byte,native}>: is_main,use_thread
 <**/profile.*{byte,native}>: is_main, package(ocamlviz)

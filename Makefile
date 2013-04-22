@@ -9,8 +9,11 @@ all: build
 clean:
 	ocamlbuild -clean
 
-build:
+build: explain_macro
 	ocamlbuild -use-ocamlfind arakoon.byte arakoon.native arakoon_client.cma arakoon_client.cmxa arakoon_client.a
+
+explain_macro:
+	ocamlbuild -use-ocamlfind -cflag -I -cflag +camlp4 -pp camlp4orf  explain_macro.cmo
 
 test:
 	./arakoon.native --run-all-tests
