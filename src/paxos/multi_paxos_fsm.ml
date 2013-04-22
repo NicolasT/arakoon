@@ -609,7 +609,13 @@ let wait_for_accepteds constants state (event:paxos_event) =
 	              log_f me "wait_for_accepted: ignoring extra Accept %S" (string_of msg) >>= fun () ->
 	              Fsm.return (Wait_for_accepteds state)
 	            end
-	        | Accept (n',i',v') when n' > n ->
+	        | Accept (n',i',v') when i' <= i -> (* n' = n *)
+                begin
+                  log_f me "wait_for_accepteds: dropping accept with n = %s and i = %s" 
+                    (Sn.string_of n) (Sn.string_of i') >>= fun () ->
+                  Fsm.return (Wait_for_accepteds state)
+                end
+	        | Accept (n',i',v') (* n' >= n || i' > i *)->
                 lost_master_role mo >>= fun () ->
                 Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
                 begin 
@@ -618,21 +624,6 @@ let wait_for_accepteds constants state (event:paxos_event) =
                   let cu_pred = Store.get_catchup_start_i constants.store in
                   let new_state = (source,cu_pred,n,i') in 
                   Fsm.return (Slave_discovered_other_master new_state)
-                end
-	        | Accept (n',i',v') when i' <= i -> (* n' = n *)
-                begin
-                  log_f me "wait_for_accepteds: dropping accept with n = %s and i = %s" 
-                    (Sn.string_of n) (Sn.string_of i') >>= fun () ->
-                  Fsm.return (Wait_for_accepteds state)
-                end
-            | Accept (n',i',v') -> (* n' = n *)
-	            begin
-                  log_f me "wait_for_accepteds: got accept with n = %s and higher i = %s" 
-                    (Sn.string_of n) (Sn.string_of i') >>= fun () ->
-                  Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
-                  let cu_pred = Store.get_catchup_start_i constants.store in
-                  let new_state = (source,cu_pred,n,i') in
-                  Fsm.return(Slave_discovered_other_master new_state)
                 end
         end
       end
