@@ -616,14 +616,33 @@ let wait_for_accepteds constants state (event:paxos_event) =
                   Fsm.return (Wait_for_accepteds state)
                 end
 	        | Accept (n',i',v') (* n' >= n || i' > i *)->
-                lost_master_role mo >>= fun () ->
-                Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
-                begin 
+              (* check lease, if we're inside, drop (how could this have happened?) 
+                 otherwise, we've lost master role
+              *)
+              let is_still_master () =
+                match constants.store # who_master() with
+                  | None -> false (* ???? *)
+                  | Some (_,al) -> let now = Int64.of_float(Unix.time()) in
+                                   let diff = abs (Int64.to_int (Int64.sub now al)) in
+                                   diff < constants.lease_expiration
+              in
+              if is_still_master () 
+              then
+                begin
+                  log_f me "wait_for_accepteds: drop %S (it's still me)" (string_of msg) >>= fun () ->
+                  Fsm.return (Wait_for_accepteds state)
+                end
+              else
+                begin
+                  lost_master_role mo >>= fun () ->
+                  Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
+                  begin 
                   (* Become slave, goto catchup *)
-                  log_f me "wait_for_accepteds: received Accept from new master %S" (string_of msg) >>= fun () ->
-                  let cu_pred = Store.get_catchup_start_i constants.store in
-                  let new_state = (source,cu_pred,n,i') in 
-                  Fsm.return (Slave_discovered_other_master new_state)
+                    log_f me "wait_for_accepteds: received Accept from new master %S" (string_of msg) >>= fun () ->
+                    let cu_pred = Store.get_catchup_start_i constants.store in
+                    let new_state = (source,cu_pred,n,i') in 
+                    Fsm.return (Slave_discovered_other_master new_state)
+                  end
                 end
         end
       end
