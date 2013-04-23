@@ -605,7 +605,6 @@ object(self: # tlog_collection)
                   (Log_extra.string_option2s marker) (Sn.string_of i) node_id  
               end
       end >>= fun () ->
-      F.flush file >>= fun () ->
       F.close file 
     end
 
