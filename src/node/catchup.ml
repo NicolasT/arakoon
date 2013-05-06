@@ -200,13 +200,6 @@ let catchup_store me (store,tlog_coll) (too_far_i:Sn.t) =
 		        end
     in
     tlog_coll # iterate start_i too_far_i f >>= fun () ->
-    begin
-      match !acc with 
-        | None -> Lwt.return ()
-        | Some(i,value) -> 
-          Lwt_log.debug_f "%s => store" (Sn.string_of i) >>= fun () ->
-          Store.safe_insert_value store i value >>= fun _ -> Lwt.return ()
-    end >>= fun () -> 
     let store_i' = store # consensus_i () in
     Lwt_log.info_f "catchup_store completed, store is @ %s" 
       ( option2s Sn.string_of store_i')
