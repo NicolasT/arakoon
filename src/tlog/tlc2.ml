@@ -563,7 +563,7 @@ object(self: # tlog_collection)
 
  method get_last_i () =
    match _previous_entry with
-     | None -> Sn.start
+     | None -> Sn.pred (Sn.zero)
      | Some pe -> let pi = Entry.i_of pe in pi
 
   method get_last_value i =

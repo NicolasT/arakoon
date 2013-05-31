@@ -263,17 +263,8 @@ let handle_prepare (type s) constants dest n n' i' =
 	    end
       else 
 	    begin
-          let store = constants.store in
-          let s_i = S.consensus_i store in
-          let nak_max = 
-            begin
-              match s_i with
-		        | None -> Sn.start
-		        | Some si -> Sn.succ si
-	        end 
-          in
-
-          if ( n' > n && i' < nak_max && nak_max <> Sn.start ) || n' <= n 
+          let nak_max = constants.tlog_coll # get_last_i () in
+          if ( n' > n && i' <=  nak_max ) || n' <= n
           then
             (* Send Nak, other node is behind *)
             let reply = Nak( n',(n,nak_max)) in

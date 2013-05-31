@@ -335,59 +335,53 @@ object(self: #backend)
 
   method private _last_entries (start_i:Sn.t) (oc:Lwt_io.output_channel) =
     log_o self "last_entries %s" (Sn.string_of start_i) >>= fun () ->
-    let consensus_i = S.consensus_i store in
-    begin
-      match consensus_i with
-	| None -> Lwt.return ()
-	| Some ci ->
+    let too_far_i = tlog_collection # get_last_i () in
+	begin
+	  tlog_collection # get_infimum_i () >>= fun inf_i ->
+	  log_o self
+	    "inf_i:%s too_far_i:%s" (Sn.string_of inf_i)
+	    (Sn.string_of too_far_i)
+
+
+	  >>= fun () ->
 	  begin
-	    tlog_collection # get_infimum_i () >>= fun inf_i ->
-	    let too_far_i = Sn.succ ci in
-	    log_o self
-	      "inf_i:%s too_far_i:%s" (Sn.string_of inf_i)
-	      (Sn.string_of too_far_i)
-
-
-	    >>= fun () ->
-	    begin
-	      if start_i < inf_i
-	      then
-		begin
-		  Llio.output_int oc 2 >>= fun () ->
-		  tlog_collection # dump_head oc
-		end
-	      else
-		Lwt.return start_i
-	    end
-	    >>= fun start_i2->
-	    let step = Sn.of_int (!Tlogcommon.tlogEntriesPerFile) in
-	    let rec loop_parts (start_i2:Sn.t) =
-	      if Sn.rem start_i2 step = Sn.start &&
-		 Sn.add start_i2 step < too_far_i
-	      then
-		begin
-		  Logger.debug_f_ "start_i2=%Li < %Li" start_i2 too_far_i
-		  >>= fun () ->
-		  Llio.output_int oc 3 >>= fun () ->
-		  tlog_collection # dump_tlog_file start_i2 oc
-		  >>= fun start_i2' ->
-		  loop_parts start_i2'
-		end
-	      else
-		Lwt.return start_i2
-	    in
-	    loop_parts start_i2
-	    >>= fun start_i3 ->
-	    Llio.output_int oc 1 >>= fun () ->
-	    let f entry =
-          let i = Entry.i_of entry
-          and v = Entry.v_of entry
-          in
-          Tlogcommon.write_entry oc i v in
-	    tlog_collection # iterate start_i3 too_far_i f >>= fun () ->
-	    Sn.output_sn oc (-1L)
+	    if start_i < inf_i
+	    then
+		  begin
+		    Llio.output_int oc 2 >>= fun () ->
+		    tlog_collection # dump_head oc
+		  end
+	    else
+		  Lwt.return start_i
 	  end
-    end
+	  >>= fun start_i2->
+	  let step = Sn.of_int (!Tlogcommon.tlogEntriesPerFile) in
+	  let rec loop_parts (start_i2:Sn.t) =
+	    if Sn.rem start_i2 step = Sn.start &&
+		  Sn.add start_i2 step < too_far_i
+	    then
+		  begin
+		    Logger.debug_f_ "start_i2=%Li < %Li" start_i2 too_far_i
+		    >>= fun () ->
+		    Llio.output_int oc 3 >>= fun () ->
+		    tlog_collection # dump_tlog_file start_i2 oc
+		    >>= fun start_i2' ->
+		    loop_parts start_i2'
+		  end
+	    else
+		  Lwt.return start_i2
+	  in
+	  loop_parts start_i2
+	  >>= fun start_i3 ->
+	  Llio.output_int oc 1 >>= fun () ->
+	  let f entry =
+        let i = Entry.i_of entry
+        and v = Entry.v_of entry
+        in
+        Tlogcommon.write_entry oc i v in
+	  tlog_collection # iterate start_i3 too_far_i f >>= fun () ->
+	  Sn.output_sn oc (-1L)
+	end
     >>= fun () ->
     log_o self "done with_last_entries"
 
@@ -426,24 +420,25 @@ object(self: #backend)
     let mo = self # _who_master () in
     let result,argumentation =
       match mo with
-	| None -> None,"young cluster"
-	| Some (m,ls) ->
-	  match Node_cfg.get_master cfg with
-	    | Elected | Preferred _ ->
-	      begin
-	      if (m = my_name ) && (ls < instantiation_time)
-	      then None, (Printf.sprintf "%Li considered invalid lease from previous incarnation" ls)
-	      else
-		let now = Int64.of_float (Unix.time()) in
-		let diff = Int64.sub now ls in
-		if diff < Int64.of_int lease_expiration then
-		  (Some m,"inside lease")
-		else (None,Printf.sprintf "(%Li < (%Li = now) lease expired" ls now)
-	      end
-	    | Forced x -> Some x,"forced master"
-	    | ReadOnly -> Some my_name, "readonly"
+	    | None -> None,"young cluster"
+	    | Some (m,ls) ->
+	        match Node_cfg.get_master cfg with
+	          | Elected | Preferred _ ->
+	              begin
+	                if (m = my_name ) && (ls < instantiation_time)
+	                then None, (Printf.sprintf "%Li considered invalid lease from previous incarnation" ls)
+	                else
+		              let now = Int64.of_float (Unix.time()) in
+		              let diff = Int64.sub now ls in
+		              if diff < Int64.of_int lease_expiration then
+		                (Some m,"inside lease")
+		              else (None,Printf.sprintf "(%Li < (%Li = now) lease expired" ls now)
+	              end
+	          | Forced x -> Some x,"forced master"
+	          | ReadOnly -> Some my_name, "readonly"
 
     in
+    Logger.debug_f_ "sync_backend: who_master %s, %s" (Log_extra.string_option2s result) argumentation >>= fun () ->
     Lwt.return result
 
   method private _not_if_master() =

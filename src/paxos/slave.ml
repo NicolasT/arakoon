@@ -284,21 +284,27 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
                       match maybe_previous with
 		                | None -> begin log_f me "No previous" >>= fun () -> Lwt.return() end
 		                | Some( pv, pi ) -> 
-                          let store_i = S.consensus_i constants.store in
-                          begin
-		                    match store_i with
-		                      | Some s_i ->
-			                    if (Sn.compare s_i pi) == 0 
-			                    then log_f me "slave_wait_for_accept: Not pushing previous"
-			                    else 
-			                      begin
-			                        log_f me "slave_wait_for_accept: Pushing previous (%s %s)" 
-			                          (Sn.string_of s_i) (Sn.string_of pi) >>=fun () ->
-			                        constants.on_consensus(pv,n,pi) >>= fun _ ->
-			                        Lwt.return ()
-			                      end
-                              | None -> constants.on_consensus(pv,n,pi) >>= fun _ -> Lwt.return()
-                          end
+                            let store_i = S.consensus_i constants.store in
+                            if Sn.compare (Sn.succ pi) i' == 0
+                            then (* an accept only confirms a previous value if it has
+                                    a i value of exactly 1 higher *)
+                              begin
+		                        match store_i with
+		                          | Some s_i ->
+			                          if (Sn.compare s_i pi) == 0 
+			                          then log_f me "slave_wait_for_accept: Not pushing previous"
+			                          else 
+			                            begin
+			                              log_f me "slave_wait_for_accept: Pushing previous (%s %s)" 
+			                                (Sn.string_of s_i) (Sn.string_of pi) >>=fun () ->
+			                              constants.on_consensus(pv,n,pi) >>= fun _ ->
+			                              Lwt.return ()
+			                            end
+                                  | None ->
+                                        constants.on_consensus(pv,n,pi) >>= fun _ -> Lwt.return()
+                              end
+                            else
+                              Lwt.return ()
                     end >>= fun _ ->
 	              let reply = Accepted(n,i') in
 	              log_f me "replying with %S" (string_of reply) >>= fun () ->

@@ -954,7 +954,7 @@ let enter_forced_master constants buffers current_i vo =
         (_execute_effects constants)
         produce 
 	    (machine constants) 
-	    (forced_master_suggest constants (current_n,current_i))
+	    (forced_master_suggest constants (current_n,(Sn.succ current_i)))
     ) 
     (fun e ->
       log_f me "FSM BAILED due to uncaught exception %s" (Printexc.to_string e)
@@ -964,7 +964,7 @@ let enter_forced_master constants buffers current_i vo =
 let enter_simple_paxos constants buffers current_i vo =
   let me = constants.me in
   log_f me "+starting FSM election." >>= fun () ->
-  let current_n = Sn.start in
+  let current_n = Sn.start in (* TODO this should take into account which node we're talking about! *)
   let trace = trace_transition me in
   let produce = paxos_produce buffers constants in
   Lwt.catch 
@@ -973,7 +973,7 @@ let enter_simple_paxos constants buffers current_i vo =
         (_execute_effects constants)
         produce 
 	(machine constants) 
-	(election_suggest constants (current_n, current_i, vo))
+	(election_suggest constants (current_n, (Sn.succ current_i), vo))
     ) 
     (fun e ->
       log_f me "FSM BAILED (run_election) due to uncaught exception %s" 

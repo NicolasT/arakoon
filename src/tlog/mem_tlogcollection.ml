@@ -38,7 +38,7 @@ object (self: #tlog_collection)
 
   method get_last_i () =
     match last_entry with
-      | None -> Sn.start
+      | None -> Sn.pred (Sn.zero)
       | Some entry -> Entry.i_of entry 
 
   method get_last_value i =

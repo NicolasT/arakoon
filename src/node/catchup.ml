@@ -141,7 +141,7 @@ let catchup_store (type s) me ((module S : Store.STORE with type t = s), store,t
   let store_i = S.consensus_i store in
   let start_i =
     match store_i with
-      | None -> Sn.start
+      | None -> Sn.pred (Sn.zero)
       | Some i -> Sn.succ i
   in
   if Sn.compare start_i too_far_i > 0 
