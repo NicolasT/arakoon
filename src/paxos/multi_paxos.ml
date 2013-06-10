@@ -219,7 +219,6 @@ let start_election_timeout constants n =
 
 type prepare_repsonse =
   | Prepare_dropped
-  | Promise_sent_up2date
   | Promise_sent_needs_catchup
   | Nak_sent
 
@@ -266,7 +265,7 @@ let handle_prepare (type s) constants dest n n' i' =
 	        end 
           in
 
-          if ( n' > n && i' < nak_max && nak_max <> Sn.start ) || n' <= n 
+          if ( n' > n && i' < nak_max ) || n' < n
           then
             (* Send Nak, other node is behind *)
             let reply = Nak( n',(n,nak_max)) in
@@ -280,13 +279,8 @@ let handle_prepare (type s) constants dest n n' i' =
               let reply = Promise(n',nak_max,lv) in
               Logger.debug_f_ "%s: handle_prepare: starting election timer" me >>= fun () ->
               start_election_timeout constants n' >>= fun () ->
-              if i' > nak_max
-              then
-                (* Send Promise, but I need catchup *)
-		        Lwt.return(Promise_sent_needs_catchup, reply)
-              else (* i' = i *)
-                (* Send Promise, we are in sync *)
-		        Lwt.return(Promise_sent_up2date, reply)
+              (* Send Promise, I need catchup *)
+		      Lwt.return(Promise_sent_needs_catchup, reply)
             end 
 	    end >>= fun (ret_val, reply) ->
       Logger.debug_f_ "%s: handle_prepare replying with %S" me (string_of reply) >>= fun () ->

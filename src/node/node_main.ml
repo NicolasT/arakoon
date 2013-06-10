@@ -214,36 +214,64 @@ let only_catchup (type s) (module S : Store.STORE with type t = s) ~name ~cluste
     ((module S),store,tlc)  current_i mr_name (future_n,future_i) >>= fun _ ->
   tlc # close () >>= fun () ->
   S.close store
-  
-    
-    
-module X = struct 
-      (* Need to find a name for this: 
-	 the idea is to lift stuff out of _main_2 
-      *)
-  
-  let on_consensus (type s) (module S : Store.STORE with type t = s) store vni =
-    let (v,n,i) = vni in
-    begin
-      if Value.is_master_set v
-      then
-	    begin
-	      S.incr_i store >>= fun () ->
-          Lwt.return [Store.Ok None]
-	    end
-      else
-        let t0 = Unix.gettimeofday() in
-	    S.on_consensus store vni >>= fun r ->
-        let t1 = Unix.gettimeofday () in
-        let d = t1 -. t0 in
-        Logger.debug_f_ "T:on_consensus took: %f" d  >>= fun () ->
-        Lwt.return r
 
-    end
-  
-  let last_master_log_stmt = ref 0L  
-    
-  let on_accept (type s) statistics (tlog_coll:Tlogcollection.tlog_collection) (module S : Store.STORE with type t = s) store (v,n,i) =
+
+
+module X = struct
+      (* Need to find a name for this:
+	 the idea is to lift stuff out of _main_2
+      *)
+
+  let last_master_log_stmt = ref 0L
+
+  let on_consensus (type s) (module S : Store.STORE with type t = s) store me inject_event vni =
+    let s_on_consensus vni =
+      let t0 = Unix.gettimeofday() in
+	  S.on_consensus store vni >>= fun r ->
+      let t1 = Unix.gettimeofday () in
+      let d = t1 -. t0 in
+      Logger.debug_f_ "T:on_consensus took: %f" d  >>= fun () ->
+      Lwt.return r in
+    let (v,n,i) = vni in
+    match v with
+      | Value.Vm(m, l) ->
+          begin
+            let optionally_log_is_master now =
+              let m_old_master = S.who_master store in
+              let new_master =
+                begin
+                  match m_old_master with
+                    | Some(m_old,_) -> m <> m_old
+                    | None -> true
+                end
+              in
+              if (Int64.sub now !last_master_log_stmt >= 60L)  or new_master then
+                begin
+                  last_master_log_stmt := now;
+                  Logger.info_f_ "%s is master" m
+                end
+              else
+                Lwt.return () in
+            let optionally_inject_nop_update () =
+              if m = me
+              then
+                (* insert a Nop update if it's the master set for me to make sure other nodes
+                   receive the consensus message about my masterness in a timely manner! *)
+                Logger.debug_f_ "%s: injecting Update.Nop to ensure others know about my leadership" me >>= fun () ->
+              inject_event (Multi_paxos.FromClient [(Update.Nop, fun _ -> Lwt.return ())])
+              else
+                Lwt.return () in
+            let now = Int64.of_float (Unix.gettimeofday ()) in
+            let v' = Value.create_master_value (m, now) in
+            s_on_consensus (v',n,i) >>= fun r ->
+            optionally_log_is_master now >>= fun () ->
+            optionally_inject_nop_update () >>= fun () ->
+            Lwt.return r
+          end
+      | Value.Vc(_,_) ->
+          s_on_consensus vni
+
+  let on_accept (type s) statistics (tlog_coll:Tlogcollection.tlog_collection) (module S : Store.STORE with type t = s) store me inject_event (v,n,i) =
     let t0 = Unix.gettimeofday () in
     Logger.debug_f_ "on_accept: n:%s i:%s" (Sn.string_of n) (Sn.string_of i) 
     >>= fun () ->
@@ -252,40 +280,18 @@ module X = struct
     tlog_coll # log_value_explicit i v sync marker >>= fun wr_result ->
     begin
       match v with
-        | Value.Vc (us,_)     -> 
+        | Value.Vc (us,_)     ->
             let size = List.length us in
             let () = Statistics.new_harvest statistics size in
-            Lwt.return () 
+            Lwt.return ()
         | Value.Vm (m,l) ->
-	        begin
-              let logit () =
-                let now = Int64.of_float (Unix.gettimeofday ()) in
-                let m_old_master = S.who_master store in
-	            S.set_master_no_inc store m now >>= fun _ ->
-                begin
-                  let new_master =
-                    begin
-                      match m_old_master with
-                        | Some(m_old,_) -> m <> m_old
-                        | None -> true
-                    end 
-                  in
-                  if (Int64.sub now !last_master_log_stmt >= 60L)  or new_master then
-                    begin
-                      last_master_log_stmt := now;
-                      Logger.info_f_ "%s is master"  m
-                    end 
-                  else 
-                    Lwt.return ()
-                end
-              in 
-              logit ()
-	        end
-    end  >>= fun () ->
+            (* TODO keep statistics about mastersets?*)
+              Lwt.return ()
+    end >>= fun () ->
     let t1 = Unix.gettimeofday() in
     let d = t1 -. t0 in
-    Logger.debug_f_ "T:on_accept took: %f" d 
-      
+    Logger.debug_f_ "T:on_accept took: %f" d
+
   let reporting period backend () = 
     let fp = float period in
     let rec _inner () =
@@ -518,12 +524,9 @@ let _main_2 (type s)
 	      let send, receive, run, register =
 	        Multi_paxos.network_of_messaging messaging in
 	      
-	      let on_consensus = X.on_consensus (module S) store in
 	      let on_witness (name:string) (i: Sn.t) = backend # witness name i in
 	      let last_witnessed (name:string) = backend # last_witnessed name in
           let statistics = backend # get_statistics () in
-	      let on_accept = X.on_accept statistics tlog_coll (module S) store in
-	      
 	      let get_last_value (i:Sn.t) = tlog_coll # get_last_value i in
 	      let election_timeout_buffer = Lwt_buffer.create_fixed_capacity 1 in
 	      let inject_event (e:Multi_paxos.paxos_event) =
@@ -538,6 +541,8 @@ let _main_2 (type s)
             >>= fun () ->
 	        Lwt_buffer.add e buffer
 	      in
+	      let on_accept = X.on_accept statistics tlog_coll (module S) store me.node_name inject_event in
+	      let on_consensus = X.on_consensus (module S) store me.node_name inject_event in
 	      let buffers = Multi_paxos_fsm.make_buffers
 	        (client_buffer,
 	         node_buffer,

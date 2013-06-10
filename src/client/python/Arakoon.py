@@ -543,6 +543,7 @@ class ArakoonClient :
             conn = self._sendToMaster (msg)
         return conn.decodeStringListResult( )
 
+    @retryDuringMasterReelection
     def whoMaster(self):
         self._determineMaster()
         return self._masterId

@@ -144,9 +144,6 @@ let slave_steady_state (type s) constants state event =
 		          | Prepare_dropped 
 		          | Nak_sent ->
 		              Fsm.return ~sides:[log_e0] (Slave_steady_state state)
-		          | Promise_sent_up2date ->
-		              let next_i = S.get_succ_store_i constants.store in
-		              Fsm.return (Slave_wait_for_accept (n', next_i, None, None))
 		          | Promise_sent_needs_catchup ->
 		              let i = S.get_catchup_start_i constants.store in
 		              let new_state = (source, i, n', i') in 
@@ -255,8 +252,7 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
               handle_prepare constants source n n' i' >>= function
                 | Prepare_dropped -> Fsm.return( Slave_wait_for_accept (n,i,vo, maybe_previous) )
                 | Nak_sent -> Fsm.return( Slave_wait_for_accept (n,i,vo, maybe_previous) )
-                | Promise_sent_up2date -> Fsm.return( Slave_wait_for_accept (n',i,vo, maybe_previous) )
-                | Promise_sent_needs_catchup -> 
+                | Promise_sent_needs_catchup ->
                   let i = S.get_catchup_start_i constants.store in
                   let state = (source, i, n', i') in 
                   Fsm.return( Slave_discovered_other_master state )
@@ -264,9 +260,11 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
           | Accept (n',i',v) when n'=n ->
             begin
               let () = constants.on_witness source i' in
-              let tlog_coll = constants.tlog_coll in
-              let tlc_i = tlog_coll # get_last_i () in
-              if i' < tlc_i 
+              let store_i =
+                match S.consensus_i constants.store with
+                  | None -> Sn.pred Sn.start
+                  | Some si -> si in
+              if i' <= store_i
               then
                 begin
                   let log_e = ELog(fun () ->
@@ -277,36 +275,42 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
                 end
               else
                 begin
-	              if i' > i 
+	              if i' > i
                   then 
                     let cu_pred = S.get_catchup_start_i constants.store in
                     Fsm.return( Slave_discovered_other_master(source, cu_pred, n', i') )   
                   else
                     begin
-	                  constants.on_accept (v,n,i') >>= fun () ->
+                      constants.on_accept (v,n,i') >>= fun () ->
                       begin
-		                if Value.is_master_set v 
-		                then start_lease_expiration_thread constants n constants.lease_expiration 
-		                else Lwt.return ()
-	                  end >>= fun () ->
+                        if Value.is_master_set v 
+                        then start_lease_expiration_thread constants n constants.lease_expiration 
+                        else Lwt.return ()
+                      end >>= fun () ->
                       match maybe_previous with
-		                | None -> begin Logger.debug_f_ "%s: No previous" me >>= fun () -> Lwt.return() end
-		                | Some( pv, pi ) -> 
-                          let store_i = S.consensus_i constants.store in
-                          begin
-		                    match store_i with
-		                      | Some s_i ->
-			                    if (Sn.compare s_i pi) == 0 
-			                    then Logger.debug_f_ "%s: slave_wait_for_accept: Not pushing previous" me
-			                    else 
-			                      begin
-			                        Logger.debug_f_ "%s: slave_wait_for_accept: Pushing previous (%s %s)" me 
-			                          (Sn.string_of s_i) (Sn.string_of pi) >>=fun () ->
-			                        constants.on_consensus(pv,n,pi) >>= fun _ ->
-			                        Lwt.return ()
-			                      end
-                              | None -> constants.on_consensus(pv,n,pi) >>= fun _ -> Lwt.return()
-                          end
+                        | None ->
+                            Logger.debug_f_ "%s: No previous" me
+                        | Some( pv, pi ) ->
+                            let push_previous () =
+                              Logger.debug_f_ "%s: slave_wait_for_accept: Pushing previous (i'=%s, pi=%s)"
+                                me (Sn.string_of i') (Sn.string_of pi) >>=fun () ->
+                              constants.on_consensus(pv,n,pi) >>= fun _ ->
+                              Lwt.return () in
+                            let dont_push_previous () =
+                              Logger.debug_f_ "%s: slave_wait_for_accept: Not pushing previous (i'=%s pi=%s)"
+                                me (Sn.string_of i') (Sn.string_of pi) in
+                            if i' = Sn.succ pi
+                            then
+                              begin
+                                let store_i_succ = Sn.succ store_i in
+                                if (Sn.compare store_i_succ pi) == 0
+                                then
+                                  push_previous ()
+                                else
+                                  dont_push_previous ()
+                              end
+                            else
+                              dont_push_previous ()
                     end >>= fun _ ->
 	              let reply = Accepted(n,i') in
 	              Logger.debug_f_ "%s: replying with %S" me (string_of reply) >>= fun () ->

@@ -101,11 +101,6 @@ let slave_waiting_for_prepare (type s) constants ( (current_i:Sn.t),(current_n:S
 		    | Nak_sent
 		    | Prepare_dropped ->
 		        Fsm.return ( Slave_waiting_for_prepare(current_i, current_n ) )
-		    | Promise_sent_up2date ->
-                begin
-		          let last = constants.tlog_coll # get_last () in
-		          Fsm.return (Slave_wait_for_accept (n', current_i, None, last))
-                end
 		    | Promise_sent_needs_catchup ->
 		        let i = S.get_catchup_start_i constants.store in
 		        let state = (source, i, n',i') in 
@@ -369,11 +364,6 @@ let wait_for_promises (type s) constants state event =
                       Fsm.return (Wait_for_promises state)
                     | Prepare_dropped -> 
                       Fsm.return (Wait_for_promises state)
-                    | Promise_sent_up2date ->
-		                begin
-                          let last = constants.tlog_coll # get_last () in
-			              Fsm.return (Slave_wait_for_accept (n', i, None, last))
-		                end
 		            | Promise_sent_needs_catchup ->
 		              let i = S.get_catchup_start_i constants.store in
 		              Fsm.return (Slave_discovered_other_master (source, i, n', i'))
@@ -584,14 +574,6 @@ let wait_for_accepteds (type s) constants state (event:paxos_event) =
                           | Prepare_dropped
                           | Nak_sent -> 
                               Fsm.return( Wait_for_accepteds state )
-                          | Promise_sent_up2date ->
-                              begin
-                                let last = constants.tlog_coll # get_last () in
-                                lost_master_role mo >>= fun () ->
-                                Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
-				Fsm.return
-                                  (Slave_wait_for_accept (n', i, None, last))
-                              end
                           | Promise_sent_needs_catchup ->
                               begin
                                 let i = S.get_catchup_start_i constants.store in
@@ -953,7 +935,7 @@ let enter_forced_master constants buffers current_i vo =
 let enter_simple_paxos constants buffers current_i vo =
   let me = constants.me in
   Logger.debug_f_ "%s: +starting FSM election." me >>= fun () ->
-  let current_n = Sn.start in
+  let current_n = update_n constants Sn.start in
   let trace = trace_transition me in
   let produce = paxos_produce buffers constants in
   Lwt.catch 
