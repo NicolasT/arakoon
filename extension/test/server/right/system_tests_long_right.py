@@ -342,18 +342,9 @@ def drop_master(n):
         previousMaster = master
         logging.info("finished iteration %i", i)
 
-@Common.with_custom_setup( Common.setup_3_nodes, Common.basic_teardown)
-def test_drop_master():
-    n = 10
-    drop_master(n)
-"""    drop_masters = lambda : drop_master(n)
-    Common.create_and_wait_for_threads ( 1, 1, drop_masters, n*8*3 )"""
 
-
-def _test_drop_master_with_load_(client):
+def _test_drop_master_with_threads_(n, client):
     global busy, excs
-
-    n = 10
 
     busy = True
     excs = []
@@ -401,6 +392,14 @@ def _test_drop_master_with_load_(client):
         raise excs[0]
 
 @Common.with_custom_setup( Common.setup_3_nodes, Common.basic_teardown)
+def test_drop_master():
+    def client(n):
+        pass
+    _test_drop_master_with_threads_(10, client)
+
+
+
+@Common.with_custom_setup( Common.setup_3_nodes, Common.basic_teardown)
 def test_drop_master_with_load():
     def client(n):
         global excs, busy
@@ -411,7 +410,7 @@ def test_drop_master_with_load():
             excs.append(ex)
             raise ex
 
-    _test_drop_master_with_load_(client)
+    _test_drop_master_with_threads_(10, client)
 
 
 @Common.with_custom_setup( Common.setup_3_nodes, Common.basic_teardown)
@@ -425,7 +424,7 @@ def test_drop_master_with_load_and_verify():
             excs.append(ex)
             raise ex
 
-    _test_drop_master_with_load_(client)
+    _test_drop_master_with_threads_(10, client)
 
 @Common.with_custom_setup( Common.setup_1_node_forced_master, Common.basic_teardown )
 def test_sso_deployment():
