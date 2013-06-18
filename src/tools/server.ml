@@ -117,7 +117,7 @@ let make_server_thread
           in
           let t = client_thread () in
           Hashtbl.add client_threads cid t;
-          Lwt.ignore_result
+          Lwt_extra.ignore_result
             (Lwt.catch
                (fun () -> t)
                (fun exn ->
