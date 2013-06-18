@@ -613,20 +613,19 @@ let _main_2 (type s)
           let fsm () = start_backend start_state in
           Lwt.finalize
             (fun () ->
-	          Lwt.pick[ fsm ();
-	                    messaging # run ();
-			            service ();
-			            rapporting ();
-                        (listen_for_signal () >>= fun () ->
-                         let msg = "got TERM | INT" in
-			             Logger.info_ msg >>= fun () ->
-			             Lwt_io.printl msg
-                        )
-			            ;
-		              ])
+	          Lwt_extra.pick[
+                fsm ();
+	            messaging # run ();
+			    service ();
+			    rapporting ();
+                (listen_for_signal () >>= fun () ->
+                 let msg = "got TERM | INT" in
+			     Logger.info_ msg >>= fun () ->
+			     Lwt_io.printl msg
+                )])
             (fun () ->
               Logger.debug_ "waiting for fsm thread to finish" >>= fun () ->
-              Lwt.pick [ (Lwt_mvar.take mvar >>= fun () ->
+              Lwt_extra.pick [ (Lwt_mvar.take mvar >>= fun () ->
                          Logger.debug_ "taking mvar succeeded");
                          (Lwt_unix.sleep 2.0 >>= fun () ->
                          Logger.debug_ "timeout (2.0s) while waiting for fsm thread to finish") ] >>= fun () ->

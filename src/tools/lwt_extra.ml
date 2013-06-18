@@ -22,6 +22,7 @@ If not, see <http://www.gnu.org/licenses/>.
 
 open Lwt
 
+let section = Logger.Section.main
 
 let igns = Hashtbl.create 10
 let detacheds = Hashtbl.create 10
@@ -34,14 +35,35 @@ let rec get_key () =
   else
     candidate
 
+let _condition = Lwt_condition.create ()
+let _tearing_down = ref false
+
+let _conditionally_wrap_catch_canceled t =
+  Lwt.catch
+    (fun () -> t)
+    (function
+      | Canceled ->
+          if (fun () -> !_tearing_down) ()
+          then
+            Logger.debug_ "Ignoring canceled while tearing down" >>= fun () ->
+            Lwt.return ()
+          else
+            begin
+              Lwt.fail Canceled
+            end
+      | exn -> Lwt.fail exn)
+
+
 let ignore_result (t:'a Lwt.t) =
   let key = get_key () in
   let t' () =
-    Lwt.finalize
-      (fun () -> t)
-      (fun () ->
-        Hashtbl.remove igns key;
-        Lwt.return ()) in
+    _conditionally_wrap_catch_canceled
+      (Lwt.finalize
+         (fun () -> t)
+         (fun () ->
+           Hashtbl.remove igns key;
+           Lwt_condition.signal _condition ();
+           Lwt.return ())) in
   Hashtbl.add igns key t;
   Lwt.ignore_result (t' ())
 
@@ -53,40 +75,79 @@ let detach (t: unit -> string) =
     (fun () -> t')
     (fun () ->
       Hashtbl.remove detacheds key;
-      Lwt.return ())
+      Lwt_condition.signal _condition ();
+      if !_tearing_down
+      then
+        Lwt.fail Canceled
+      else
+        Lwt.return ())
 
-let async_exception_hook : (exn -> unit) ref =
-  ref (fun exn ->
-    prerr_string "Fatal error: exception ";
-    prerr_string (Printexc.to_string exn);
-    prerr_char '\n';
-    Printexc.print_backtrace stderr;
-    flush stderr;
-    exit 2)
-let () =
-  Lwt.async_exception_hook :=
-    (function
-      | Lwt.Canceled -> ()
-      | exn -> !async_exception_hook exn)
+
+let _pickeds_finalizing = ref 0
+
+let _pick ts a =
+  _pickeds_finalizing := !_pickeds_finalizing + List.length ts;
+  Lwt.pick
+    (List.map
+       (fun t ->
+         Lwt.finalize
+           (fun () ->
+             Lwt.catch
+               (fun () -> t)
+               (function
+                 | Canceled -> Lwt.return a
+                 | exn -> Lwt.fail exn))
+           (fun () ->
+             decr _pickeds_finalizing;
+             Lwt_condition.signal _condition ();
+             Lwt.return ()))
+       ts)
+
+let pick ts =
+  _pick ts ()
 
 let run t =
   let act () =
     Lwt.finalize
       (fun () -> t)
       (fun () ->
-        Lwt.catch
+        _tearing_down := true;
+        Logger.debug_ "Cancelling ignored and detached threads" >>= fun () ->
+        Lwt.finalize
           (fun () ->
-            let ignored_threads = Hashtbl.fold (fun k t acc -> t :: acc) igns [] in
-            Hashtbl.reset igns;
-            Lwt.finalize
+            Lwt.catch
               (fun () ->
+                let ignored_threads = Hashtbl.fold (fun k t acc -> t :: acc) igns [] in
                 Lwt.pick (Lwt.return () :: ignored_threads))
+              (fun exn ->
+                Logger.info_ ~exn "Picking the ignored threads failed" >>= fun () ->
+                Lwt.wrap (fun () -> !Lwt.async_exception_hook exn)) >>= fun () ->
+            Lwt.catch
               (fun () ->
                 let detached_threads = Hashtbl.fold (fun k t acc -> t :: acc) detacheds [] in
-                Hashtbl.reset detacheds;
-                Lwt.pick (Lwt.return "" :: detached_threads) >>= fun _ -> Lwt.return ()))
-          (fun exn ->
-            Logger.info Logger.Section.main ~exn "Exception while cleaning up ignored threads"))
+                Lwt.pick (Lwt.return "" :: detached_threads) >>= fun _ ->
+                Lwt.return ())
+              (fun exn ->
+                Logger.info_ ~exn "Picking the ignored threads failed" >>= fun () ->
+                Lwt.wrap (fun () -> !Lwt.async_exception_hook exn)) >>= fun () ->
+            let rec wait () =
+              let c_igns = Hashtbl.length igns in
+              let c_detacheds = Hashtbl.length detacheds in
+              print_endline (Printf.sprintf "igns = %i; detacheds = %i; pickeds = %i" c_igns c_detacheds !_pickeds_finalizing);
+              if c_igns > 0 or c_detacheds > 0 or !_pickeds_finalizing > 0
+              then
+                begin
+                  Lwt_condition.wait _condition >>= fun () ->
+                  wait ()
+                end
+              else
+                Lwt.return () in
+
+            wait ())
+
+          (fun () ->
+            _tearing_down := false;
+            Logger.debug Logger.Section.main "Finished cancelling ignored and detached threads"))
   in
   Lwt_main.run (act ())
 
