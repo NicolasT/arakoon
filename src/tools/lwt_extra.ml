@@ -90,17 +90,17 @@ let _pick ts a =
   Lwt.pick
     (List.map
        (fun t ->
-         Lwt.finalize
+         Lwt.catch
            (fun () ->
-             Lwt.catch
+             Lwt.finalize
                (fun () -> t)
-               (function
-                 | Canceled -> Lwt.return a
-                 | exn -> Lwt.fail exn))
-           (fun () ->
-             decr _pickeds_finalizing;
-             Lwt_condition.signal _condition ();
-             Lwt.return ()))
+               (fun () ->
+                 decr _pickeds_finalizing;
+                 Lwt_condition.signal _condition ();
+                 Lwt.return ()))
+           (function
+             | Canceled -> Lwt.return a
+             | exn -> Lwt.fail exn))
        ts)
 
 let pick ts =
