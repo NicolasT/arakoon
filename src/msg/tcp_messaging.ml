@@ -361,13 +361,12 @@ object(self : # messaging )
 	      end
 	  end
 	in
-	catch
+	Lwt.finalize
 	  (fun () -> loop (String.create 1024))
-	  (fun exn ->
-	    Logger.info_f_ ~exn "going to drop outgoing connection as well" >>= fun () ->
+	  (fun () ->
+	    Logger.info_ "going to drop outgoing connection as well" >>= fun () ->
 	    let address = (ip,port) in
-	    self # _drop_connection address >>= fun () ->
-	    Lwt.fail exn)
+	    self # _drop_connection address)
 
       end
     in

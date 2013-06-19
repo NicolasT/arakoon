@@ -231,21 +231,22 @@ let test_pingpong_restart () =
   let main_t = 
     Lwt_extra.pick [ 
       begin 
-	Lwt_extra.pick [ t_a # run ();
-		   player_a # run 50 () >>= fun () -> Logger.debug_ "a done" 
-		 ]
-	>>= fun () ->
-	let t_a' = make_transport address_a in
-	let () = t_a' # register_receivers mapping in
-	let player_a' = new player "a" t_a' in
-	Lwt_extra.pick [
-	  (Logger.info_ "new network" >>= fun () -> 
-	   t_a' # run ()); 
-	  begin 
-	    Logger.debug_ "a' will be serving momentarily" >>= fun () ->
-	    player_a' # serve ~n:200 "b" 
-	  end
-	]
+        Lwt_extra.pick [ t_a # run ();
+                         player_a # run 50 () >>= fun () -> Logger.debug_ "a done" 
+                       ] >>= fun () ->
+        (* TODO the sleep below is lame, we should wait untill t_a#run() has finished instead *)
+        Lwt_unix.sleep 1. >>= fun () ->
+        let t_a' = make_transport address_a in
+        let () = t_a' # register_receivers mapping in
+        let player_a' = new player "a" t_a' in
+        Lwt_extra.pick [
+          (Logger.info_ "new network" >>= fun () -> 
+           t_a' # run ()); 
+          begin 
+            Logger.debug_ "a' will be serving momentarily" >>= fun () ->
+            player_a' # serve ~n:200 "b" 
+          end
+        ]
       end;
       t_b # run ();
       player_a # serve "b";
