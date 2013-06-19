@@ -174,8 +174,7 @@ let run t =
               else
                 Lwt.return () in
 
-            wait () >>= fun () ->
-            Lwt_unix.sleep 1.0)
+            wait ())
 
           (fun () ->
             _tearing_down := false;
