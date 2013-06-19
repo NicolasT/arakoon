@@ -68,7 +68,7 @@ let test_echo () =
     Logger.info_ "end of conversation" 
   in 
   let main () = 
-    Lwt.pick [client (); server()] >>= fun () -> 
+    Lwt_extra.pick [client (); server()] >>= fun () -> 
     Lwt_mvar.take td_var  >>= fun () ->
     Logger.info_ "end_of_main" 
   in
@@ -118,7 +118,7 @@ let test_max_connections () =
     Logger.info_ "end of conversation." 
   in 
   let main_t = 
-    Lwt.pick [client 0;
+    Lwt_extra.pick [client 0;
 	      client 1;
 	      client 2;
 	      server();

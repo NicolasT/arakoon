@@ -123,7 +123,7 @@ let test_pingpong_1x1 () =
   let setup_callback () = Lwt_condition.broadcast cvar (); Lwt.return () in
   let teardown_callback () = Lwt_mvar.put td () in
   let main_t () = 
-    Lwt.pick [ transport # run ~setup_callback ~teardown_callback (); 
+    Lwt_extra.pick [ transport # run ~setup_callback ~teardown_callback (); 
 	       begin 
 		 Lwt_condition.wait cvar >>= fun () ->
 		 Logger.debug_ "going to serve" >>= fun () ->
@@ -155,7 +155,7 @@ let test_pingpong_2x2 () =
   let player_a = new player "a" transport_a in
   let player_b = new player "b" transport_b in
   let main_t () = 
-    Lwt.pick [ transport_a # run ~teardown_callback:tda ();
+    Lwt_extra.pick [ transport_a # run ~teardown_callback:tda ();
 	       transport_b # run ~teardown_callback:tdb ();
 	       player_a # serve "b";
 	       player_b # run 0 ();
@@ -196,7 +196,7 @@ let test_pingpong_multi_server () =
   let tdc () = Lwt_mvar.put m_tdc () in
   let timeout = 60.0 in 
   let main_t () =
-    Lwt.pick [ transport_a # run ~teardown_callback:tda();
+    Lwt_extra.pick [ transport_a # run ~teardown_callback:tda();
                transport_b # run ~teardown_callback:tdb();
                transport_c # run ~teardown_callback:tdc();
                player_a # multi_serve 10000 ["b"; "c" ] ;
@@ -229,16 +229,16 @@ let test_pingpong_restart () =
   let player_a = new player "a" t_a in
   let player_b = new player "b" t_b in
   let main_t = 
-    Lwt.pick [ 
+    Lwt_extra.pick [ 
       begin 
-	Lwt.pick [ t_a # run ();
+	Lwt_extra.pick [ t_a # run ();
 		   player_a # run 50 () >>= fun () -> Logger.debug_ "a done" 
 		 ]
 	>>= fun () ->
 	let t_a' = make_transport address_a in
 	let () = t_a' # register_receivers mapping in
 	let player_a' = new player "a" t_a' in
-	Lwt.pick [
+	Lwt_extra.pick [
 	  (Logger.info_ "new network" >>= fun () -> 
 	   t_a' # run ()); 
 	  begin 

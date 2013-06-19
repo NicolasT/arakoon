@@ -613,7 +613,7 @@ let _main_2 (type s)
           let fsm () = start_backend start_state in
           Lwt.finalize
             (fun () ->
-	          Lwt_extra.pick[
+	          Lwt_extra.pick ~msg:"fsm pick" [
                 fsm ();
 	            messaging # run ();
 			    service ();

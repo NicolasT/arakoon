@@ -56,15 +56,18 @@ let _conditionally_wrap_catch_canceled t =
 
 let ignore_result (t:unit Lwt.t) =
   let key = get_key igns in
+  Hashtbl.add igns key t;
+  print_endline (Printf.sprintf "ignoring thread %i" key);
   let t' () =
     _conditionally_wrap_catch_canceled
       (Lwt.finalize
          (fun () -> t)
          (fun () ->
+           print_endline (Printf.sprintf "removing ignored thread %i" key);
            Hashtbl.remove igns key;
            Lwt_condition.signal _condition ();
-           Lwt.return ())) in
-  Hashtbl.add igns key t;
+           Lwt.return ()))
+  in
   Lwt.ignore_result (t' ())
 
 let detach (t: unit -> string) =
@@ -91,29 +94,56 @@ let detach (t: unit -> string) =
 let _pickeds_finalizing = ref 0
 let _pickeds = ref 0
 
-let _pick ts a =
+let _pick ?(msg="?") ts a =
   incr _pickeds;
-  Lwt.pick
-    (List.map
-       (fun t ->
-         Lwt.finalize
-           (fun () ->
-             incr _pickeds_finalizing;
-             Lwt.catch
-               (fun () -> t)
-               (function
-                 | Canceled -> Lwt.return a
-                 | exn -> Lwt.fail exn))
-           (fun () ->
-             decr _pickeds_finalizing;
-             Lwt_condition.signal _condition ();
-             Lwt.return ()))
-       ts) >>= fun () ->
-  decr _pickeds;
-  Lwt.return ()
 
-let pick ts =
-  _pick ts ()
+(*  Lwt.on_termination*)
+
+(*
+ignore all
+make them put an mvar when finalizing
+then cancel all
+only implement pick and wait
+
+suggestie nicolas
+ignore geeft lock terug?
+
+nah nah nah
+
+implementatie zoals nu maar sowieso wachten op 
+*)
+
+  let t_pick =
+    Lwt.pick
+      (List.map
+         (fun t ->
+           Lwt.catch
+             (fun () ->
+               Lwt.finalize
+                 (fun () ->
+                   incr _pickeds_finalizing;
+                   Logger.debug_f_ "start: _pickeds_finalizing = %i; %s" !_pickeds_finalizing msg >>= fun () ->
+                   t)
+                 (fun () ->
+                   decr _pickeds_finalizing;
+                   Lwt_condition.signal _condition ();
+                   Logger.debug_f_ "end: _pickeds_finalizing = %i; %s" !_pickeds_finalizing msg))
+             (function
+               | Canceled ->
+                   Logger.debug_f_ "canceled: _pickeds_finalizing = %i; %s" !_pickeds_finalizing msg
+               | exn -> Lwt.fail exn))
+
+         ts) in
+  Lwt.finalize
+    (fun () -> t_pick)
+    (fun () ->
+      decr _pickeds;
+      Lwt_condition.signal _condition ();
+      Lwt.return ())
+
+
+let pick ?(msg="?") ts =
+  _pick ~msg ts ()
 
 let run t =
   let act () =
@@ -134,7 +164,7 @@ let run t =
             let rec wait () =
               let c_igns = Hashtbl.length igns in
               let c_detacheds = Hashtbl.length detacheds in
-              print_endline (Printf.sprintf "igns = %i; detacheds = %i; pickeds = %i" c_igns c_detacheds !_pickeds_finalizing);
+              print_endline (Printf.sprintf "igns = %i; detacheds = %i; pickeds = %i %i" c_igns c_detacheds !_pickeds_finalizing !_pickeds);
               if c_igns > 0 or c_detacheds > 0 or !_pickeds_finalizing > 0 or !_pickeds > 0
               then
                 begin
@@ -144,7 +174,8 @@ let run t =
               else
                 Lwt.return () in
 
-            wait ())
+            wait () >>= fun () ->
+            Lwt_unix.sleep 1.0)
 
           (fun () ->
             _tearing_down := false;

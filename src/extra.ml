@@ -36,15 +36,18 @@ let eq_conv conv str i1 i2 =
 open Lwt
 
 let lwt_bracket setup testcase teardown () =
-  let x = Lwt_extra.run (setup ()) in
-  let () =
-    try Lwt_extra.run (testcase x)
-    with exn ->
-      begin
-        Lwt_extra.run (teardown x);
-        raise exn
-      end in
-  Lwt_extra.run (teardown x)
+  let try_lwt_ f =
+    Lwt.catch f (fun exn -> Lwt.fail exn)
+  in
+  Lwt_main.run
+    begin
+      try_lwt_ setup >>= fun x ->
+      try_lwt_ (fun () ->
+        Lwt.finalize (fun () -> testcase x)
+          (fun () -> teardown x)
+      ) >>= fun () ->
+      Lwt.return ()
+    end
 
 let lwt_test_wrap testcase =
   let setup = Lwt.return and teardown _ = Lwt.return () in
