@@ -27,11 +27,11 @@ let section = Logger.Section.main
 let igns = Hashtbl.create 10
 let detacheds = Hashtbl.create 10
 
-let rec get_key () =
+let rec get_key ht =
   let candidate = Random.int 1073741823 in
-  if Hashtbl.mem igns candidate
+  if Hashtbl.mem ht candidate
   then
-    get_key ()
+    get_key ht
   else
     candidate
 
@@ -54,8 +54,8 @@ let _conditionally_wrap_catch_canceled t =
       | exn -> Lwt.fail exn)
 
 
-let ignore_result (t:'a Lwt.t) =
-  let key = get_key () in
+let ignore_result (t:unit Lwt.t) =
+  let key = get_key igns in
   let t' () =
     _conditionally_wrap_catch_canceled
       (Lwt.finalize
@@ -68,8 +68,13 @@ let ignore_result (t:'a Lwt.t) =
   Lwt.ignore_result (t' ())
 
 let detach (t: unit -> string) =
+  (* TODO can detached thread be run in parallel with thread waiting on condition?
+     Join on the threads, if thread with condition cancels then cancel the entire thread
+
+     This would make detached threads cancelable without being in cleanup phase
+  *)
   let t' = Lwt_preemptive.detach t () in
-  let key = get_key () in
+  let key = get_key detacheds in
   Hashtbl.add detacheds key t';
   Lwt.finalize
     (fun () -> t')
@@ -84,24 +89,28 @@ let detach (t: unit -> string) =
 
 
 let _pickeds_finalizing = ref 0
+let _pickeds = ref 0
 
 let _pick ts a =
-  _pickeds_finalizing := !_pickeds_finalizing + List.length ts;
+  incr _pickeds;
   Lwt.pick
     (List.map
        (fun t ->
-         Lwt.catch
+         Lwt.finalize
            (fun () ->
-             Lwt.finalize
+             incr _pickeds_finalizing;
+             Lwt.catch
                (fun () -> t)
-               (fun () ->
-                 decr _pickeds_finalizing;
-                 Lwt_condition.signal _condition ();
-                 Lwt.return ()))
-           (function
-             | Canceled -> Lwt.return a
-             | exn -> Lwt.fail exn))
-       ts)
+               (function
+                 | Canceled -> Lwt.return a
+                 | exn -> Lwt.fail exn))
+           (fun () ->
+             decr _pickeds_finalizing;
+             Lwt_condition.signal _condition ();
+             Lwt.return ()))
+       ts) >>= fun () ->
+  decr _pickeds;
+  Lwt.return ()
 
 let pick ts =
   _pick ts ()
@@ -115,26 +124,18 @@ let run t =
         Logger.debug_ "Cancelling ignored and detached threads" >>= fun () ->
         Lwt.finalize
           (fun () ->
-            Lwt.catch
-              (fun () ->
-                let ignored_threads = Hashtbl.fold (fun k t acc -> t :: acc) igns [] in
-                Lwt.pick (Lwt.return () :: ignored_threads))
-              (fun exn ->
-                Logger.info_ ~exn "Picking the ignored threads failed" >>= fun () ->
-                Lwt.wrap (fun () -> !Lwt.async_exception_hook exn)) >>= fun () ->
-            Lwt.catch
-              (fun () ->
-                let detached_threads = Hashtbl.fold (fun k t acc -> t :: acc) detacheds [] in
-                Lwt.pick (Lwt.return "" :: detached_threads) >>= fun _ ->
-                Lwt.return ())
-              (fun exn ->
-                Logger.info_ ~exn "Picking the ignored threads failed" >>= fun () ->
-                Lwt.wrap (fun () -> !Lwt.async_exception_hook exn)) >>= fun () ->
+            let cancel t =
+              try
+                Lwt.cancel t
+              with exn -> () in
+            Hashtbl.iter (fun k t -> cancel t) igns;
+            Hashtbl.iter (fun k t -> cancel t) detacheds;
+
             let rec wait () =
               let c_igns = Hashtbl.length igns in
               let c_detacheds = Hashtbl.length detacheds in
               print_endline (Printf.sprintf "igns = %i; detacheds = %i; pickeds = %i" c_igns c_detacheds !_pickeds_finalizing);
-              if c_igns > 0 or c_detacheds > 0 or !_pickeds_finalizing > 0
+              if c_igns > 0 or c_detacheds > 0 or !_pickeds_finalizing > 0 or !_pickeds > 0
               then
                 begin
                   Lwt_condition.wait _condition >>= fun () ->
