@@ -625,10 +625,7 @@ let _main_2 (type s)
                 )])
             (fun () ->
               Logger.debug_ "waiting for fsm thread to finish" >>= fun () ->
-              Lwt_extra.pick [ (Lwt_mvar.take mvar >>= fun () ->
-                         Logger.debug_ "taking mvar succeeded");
-                         (Lwt_unix.sleep 2.0 >>= fun () ->
-                         Logger.debug_ "timeout (2.0s) while waiting for fsm thread to finish") ] >>= fun () ->
+              Lwt_mvar.take mvar >>= fun () ->
               S.close store >>= fun () ->
               Logger.fatal_f_
                 ">>> Closing the store @ %S succeeded: everything seems OK <<<"

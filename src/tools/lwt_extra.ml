@@ -161,9 +161,10 @@ let run t =
 
             let rec wait () =
               Logger.debug_f_ "igns = %i; detacheds = %i; pickeds = %i %i" (Hashtbl.length igns) (Hashtbl.length detacheds) !_pickeds_finalizing !_pickeds >>= fun () ->
-              let c_igns = Hashtbl.length igns in
-              let c_detacheds = Hashtbl.length detacheds in
-              if c_igns > 0 or c_detacheds > 0 or !_pickeds_finalizing > 0 or !_pickeds > 0
+              if Hashtbl.length igns > 0
+                or Hashtbl.length detacheds > 0
+                or !_pickeds_finalizing > 0
+                or !_pickeds > 0
               then
                 begin
                   Lwt_condition.wait _condition >>= fun () ->
