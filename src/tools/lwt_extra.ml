@@ -57,13 +57,11 @@ let _conditionally_wrap_catch_canceled t =
 let ignore_result (t:unit Lwt.t) =
   let key = get_key igns in
   Hashtbl.add igns key t;
-  print_endline (Printf.sprintf "ignoring thread %i" key);
   let t' () =
     _conditionally_wrap_catch_canceled
       (Lwt.finalize
          (fun () -> t)
          (fun () ->
-           print_endline (Printf.sprintf "removing ignored thread %i" key);
            Hashtbl.remove igns key;
            Lwt_condition.signal _condition ();
            Lwt.return ()))
@@ -162,9 +160,9 @@ let run t =
             Hashtbl.iter (fun k t -> cancel t) detacheds;
 
             let rec wait () =
+              Logger.debug_f_ "igns = %i; detacheds = %i; pickeds = %i %i" (Hashtbl.length igns) (Hashtbl.length detacheds) !_pickeds_finalizing !_pickeds >>= fun () ->
               let c_igns = Hashtbl.length igns in
               let c_detacheds = Hashtbl.length detacheds in
-              print_endline (Printf.sprintf "igns = %i; detacheds = %i; pickeds = %i %i" c_igns c_detacheds !_pickeds_finalizing !_pickeds);
               if c_igns > 0 or c_detacheds > 0 or !_pickeds_finalizing > 0 or !_pickeds > 0
               then
                 begin
