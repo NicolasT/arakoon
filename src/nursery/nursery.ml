@@ -38,7 +38,9 @@ let try_connect (ips, port) =
       let r = Some (ic,oc) in
       Lwt.return r
     )
-    (fun exn -> Lwt.return None)
+    (function
+      | Canceled -> Lwt.fail Canceled
+      | exn -> Lwt.return None)
 
 
 
@@ -470,5 +472,5 @@ let nursery_test_main () =
     
     NC.migrate nc "left" "T" "right"
   in
-  Lwt_main.run (t ())
+  Lwt_extra.run (t ())
 

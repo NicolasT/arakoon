@@ -42,11 +42,7 @@ let should_fail x error_msg success_msg =
   else Lwt.return ()
 
 let _start tn = 
-  let d = 5.0 in
-  Logger.info_f_ "==================== %s ===================" tn >>= fun () ->
-  Logger.info_f_ "(sleep %f)" d >>= fun () ->
-  Lwt_unix.sleep d >>= fun () ->
-  Logger.info_f_ "---------------------%s--------------------" tn
+  Logger.info_f_ "==================== %s ===================" tn
 
 let all_same_master (tn, cluster_cfg, all_t) =
   let scenario () = 
@@ -91,7 +87,7 @@ let all_same_master (tn, cluster_cfg, all_t) =
     let () = test !masters in
     Lwt.return ()
   in
-  Lwt.pick [Lwt.join all_t;
+  Lwt_extra.pick [Lwt.join all_t;
 	        scenario () ]
   
 
@@ -139,10 +135,10 @@ let nothing_on_slave (tn, cluster_cfg, all_t) =
 	    loop rest
     in loop slave_cfgs
   in
-  Lwt.pick [Lwt.join all_t;
+  Lwt_extra.pick [Lwt.join all_t;
             Lwt_unix.sleep 5.0 >>= fun () -> test_slaves cluster_cfg]
     
-let dirty_on_slave (tn, cluster_cfg,_) = 
+let dirty_on_slave (tn, cluster_cfg, all_t) = 
   Lwt_unix.sleep (float (cluster_cfg._lease_period)) >>= fun () ->
   Logger.debug_ "dirty_on_slave" >>= fun () ->
   let cfgs = cluster_cfg.cfgs in
@@ -181,7 +177,10 @@ let dirty_on_slave (tn, cluster_cfg,_) =
     in
     loop slave_cfgs
   in
-  do_slaves cluster_cfg
+  Lwt_extra.pick [
+    Lwt.join all_t;
+    (Lwt_unix.sleep 5.0 >>= fun () ->
+    do_slaves cluster_cfg)]
 
 type client = Arakoon_client.client
 
@@ -511,7 +510,7 @@ let _multi_get_option (client:client) =
       Lwt.fail (Failure "bad order or arity")
         
 
-let _with_master ((tn:string), cluster_cfg, _) f =
+let _with_master ((tn:string), cluster_cfg, all_t) f =
   let sp = float(cluster_cfg._lease_period) *. 1.5 in
   Lwt_unix.sleep sp >>= fun () -> (* let the cluster reach stability *) 
   Logger.info_ "cluster should have reached stability" >>= fun () ->
@@ -521,7 +520,10 @@ let _with_master ((tn:string), cluster_cfg, _) f =
     List.hd 
       (List.filter (fun cfg -> cfg.node_name = master_name) cluster_cfg.cfgs)
   in
-  Client_main.with_client master_cfg cluster_cfg.cluster_id f
+  let do_f =
+    Client_main.with_client master_cfg cluster_cfg.cluster_id f in
+  Lwt_extra.pick [Lwt.join all_t;
+                  do_f]
 
 
 let trivial_master tpl =

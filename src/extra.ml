@@ -41,24 +41,14 @@ let lwt_bracket setup testcase teardown () =
   in
   Lwt_main.run
     begin
-    try_lwt_ setup >>= fun x ->
-    try_lwt_ (fun () ->
-      Lwt.finalize (fun () -> testcase x)
-	(fun () -> teardown x)
-    ) >>= fun () ->
-    Lwt.return ()
+      try_lwt_ setup >>= fun x ->
+      try_lwt_ (fun () ->
+        Lwt.finalize (fun () -> testcase x)
+          (fun () -> teardown x)
+      ) >>= fun () ->
+      Lwt.return ()
     end
 
 let lwt_test_wrap testcase =
   let setup = Lwt.return and teardown _ = Lwt.return () in
   lwt_bracket setup testcase teardown
-
-let timeout_thread timeout_sec f =
-  let sleep_sec = float_of_int (timeout_sec) in
-  let t =
-    begin
-      Lwt_unix.sleep sleep_sec >>= fun () ->
-      f ()
-    end in
-  let () = Lwt.ignore_result t in
-  t

@@ -392,7 +392,9 @@ object(self: # tlog_collection)
             Lwt_unix.unlink tlu >>= fun () ->
             Logger.debug_f_ "ok: unlinked %s" tlu
           )
-          (fun exn -> Logger.warning_f_ ~exn "unlinking of %s failed" tlu) in
+          (function
+            | Canceled -> Lwt.fail Canceled
+            | exn -> Logger.warning_f_ ~exn "unlinking of %s failed" tlu) in
       File_system.exists tlc >>= fun tlc_exists ->
       if tlc_exists
       then
@@ -409,13 +411,15 @@ object(self: # tlog_collection)
             try_unlink_tlu () >>= fun () ->
             Logger.debug_f_ "end of compress : %s -> %s" tlu tlc
           )
-          (function exn -> Logger.warning_ "exception inside compression, continuing anyway")
+          (function
+            | Canceled -> Lwt.fail Canceled
+            | exn -> Logger.warning_ "exception inside compression, continuing anyway")
          >>= fun () ->
       let () = _compressing <- false in
       let () = Lwt_condition.signal _jc () in
       loop ()
     in
-    Lwt.ignore_result (loop ())
+    Lwt_extra.ignore_result (loop ())
 
 
   method log_value_explicit i value sync marker =
@@ -800,6 +804,6 @@ let truncate_tlog filename =
         Lwt_io.with_file ~mode:Lwt_io.input filename do_it
         end
     end
-  in Lwt_main.run t
+  in Lwt_extra.run t
 
 
