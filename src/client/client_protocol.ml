@@ -89,6 +89,7 @@ let handle_exception oc exn=
     match exn with
       | XException(Arakoon_exc.E_NOT_FOUND, msg) ->
           Lwt.return (Arakoon_exc.E_NOT_FOUND,msg, false, false, Logger.Debug)
+      | Arakoon_exc.Exception(Arakoon_exc.E_GOING_DOWN, msg)
       | XException(Arakoon_exc.E_GOING_DOWN, msg) ->
           Lwt.return (Arakoon_exc.E_GOING_DOWN, msg, true, true, Logger.Error)
       | XException(Arakoon_exc.E_ASSERTION_FAILED, msg) ->
