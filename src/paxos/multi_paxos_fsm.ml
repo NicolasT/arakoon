@@ -677,10 +677,9 @@ let wait_for_accepteds (type s) constants state (event:paxos_event) =
 		        Logger.debug_f_ "%s: going to RESEND Accept messages" me >>= fun () ->
 		        let needed, already_voted = ballot in
 		        let msg = Accept(n,i,v) in
-		        let silent_others = List.filter (fun o -> not (List.mem o already_voted)) 
+		        let silent_others = List.filter (fun o -> not (List.mem o already_voted))
 		          constants.others in
-		        Lwt_list.iter_s (fun o -> constants.send msg me o) silent_others >>= fun () ->
-		        mcast constants msg >>= fun () ->
+                Lwt_list.iter_s (fun o -> constants.send msg me o) silent_others >>= fun () ->
                 start_election_timeout constants n >>= fun () ->
                 Fsm.return (Wait_for_accepteds state)
 	          end
