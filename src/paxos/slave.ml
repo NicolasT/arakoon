@@ -296,12 +296,14 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
                           begin
 		                    match store_i with
 		                      | Some s_i ->
-			                    if (Sn.compare s_i pi) == 0 
-			                    then Logger.debug_f_ "%s: slave_wait_for_accept: Not pushing previous" me
-			                    else 
+			                    if (Sn.compare s_i pi) == 0 || pi == i'
+			                    then
+                                  Logger.debug_f_ "%s: slave_wait_for_accept: Not pushing previous (s_i=%s pi=%s i'=%s)"
+                                    me (Sn.string_of s_i) (Sn.string_of pi) (Sn.string_of i')
+			                    else
 			                      begin
-			                        Logger.debug_f_ "%s: slave_wait_for_accept: Pushing previous (%s %s)" me 
-			                          (Sn.string_of s_i) (Sn.string_of pi) >>=fun () ->
+			                        Logger.debug_f_ "%s: slave_wait_for_accept: Pushing previous (s_i=%s pi=%s i'=%s)"
+                                      me (Sn.string_of s_i) (Sn.string_of pi) (Sn.string_of i') >>=fun () ->
 			                        constants.on_consensus(pv,n,pi) >>= fun _ ->
 			                        Lwt.return ()
 			                      end
