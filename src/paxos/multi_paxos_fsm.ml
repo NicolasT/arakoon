@@ -104,7 +104,7 @@ let slave_waiting_for_prepare (type s) constants ( (current_i:Sn.t),(current_n:S
 		    | Promise_sent_up2date ->
                 begin
 		          let last = constants.tlog_coll # get_last () in
-		          Fsm.return (Slave_wait_for_accept (n', current_i, None, last))
+		          Fsm.return (Slave_wait_for_accept (n', current_i, None, last, []))
                 end
 		    | Promise_sent_needs_catchup ->
 		        let i = S.get_catchup_start_i constants.store in
@@ -372,7 +372,7 @@ let wait_for_promises (type s) constants state event =
                     | Promise_sent_up2date ->
 		                begin
                           let last = constants.tlog_coll # get_last () in
-			              Fsm.return (Slave_wait_for_accept (n', i, None, last))
+			              Fsm.return (Slave_wait_for_accept (n', i, None, last, []))
 		                end
 		            | Promise_sent_needs_catchup ->
 		              let i = S.get_catchup_start_i constants.store in
@@ -588,9 +588,7 @@ let wait_for_accepteds (type s) constants state (event:paxos_event) =
                               begin
                                 let last = constants.tlog_coll # get_last () in
                                 lost_master_role mo >>= fun () ->
-                                Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
-				Fsm.return
-                                  (Slave_wait_for_accept (n', i, None, last))
+				                Fsm.return (Slave_wait_for_accept (n', i, None, last, lease_expire_waiters))
                               end
                           | Promise_sent_needs_catchup ->
                               begin

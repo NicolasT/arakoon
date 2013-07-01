@@ -146,7 +146,7 @@ let slave_steady_state (type s) constants state event =
 		              Fsm.return ~sides:[log_e0] (Slave_steady_state state)
 		          | Promise_sent_up2date ->
 		              let next_i = S.get_succ_store_i constants.store in
-		              Fsm.return (Slave_wait_for_accept (n', next_i, None, None))
+		              Fsm.return (Slave_wait_for_accept (n', next_i, None, None, []))
 		          | Promise_sent_needs_catchup ->
 		              let i = S.get_catchup_start_i constants.store in
 		              let new_state = (source, i, n', i') in 
@@ -238,7 +238,7 @@ let slave_steady_state (type s) constants state event =
 
 (* a pending slave that has promised a value to a pending master waits
    for an Accept from the master about this *)
-let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
+let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous, lease_expire_waiters) event =
   let module S = (val constants.store_module : Store.STORE with type t = s) in
   match event with 
     | FromNode(msg,source) ->
@@ -253,12 +253,13 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
             begin
 	          let () = constants.on_witness source i' in
               handle_prepare constants source n n' i' >>= function
-                | Prepare_dropped -> Fsm.return( Slave_wait_for_accept (n,i,vo, maybe_previous) )
-                | Nak_sent -> Fsm.return( Slave_wait_for_accept (n,i,vo, maybe_previous) )
-                | Promise_sent_up2date -> Fsm.return( Slave_wait_for_accept (n',i,vo, maybe_previous) )
+                | Prepare_dropped -> Fsm.return( Slave_wait_for_accept (n,i,vo, maybe_previous, lease_expire_waiters) )
+                | Nak_sent -> Fsm.return( Slave_wait_for_accept (n,i,vo, maybe_previous, lease_expire_waiters) )
+                | Promise_sent_up2date -> Fsm.return( Slave_wait_for_accept (n',i,vo, maybe_previous, lease_expire_waiters) )
                 | Promise_sent_needs_catchup -> 
                   let i = S.get_catchup_start_i constants.store in
-                  let state = (source, i, n', i') in 
+                  let state = (source, i, n', i') in
+                  Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
                   Fsm.return( Slave_discovered_other_master state )
             end
           | Accept (n',i',v) when n'=n ->
@@ -273,13 +274,14 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
                     Printf.sprintf "slave_wait_for_accept: dropping old accept (i=%s , i'=%s)" 
                     (Sn.string_of i) (Sn.string_of i'))
                   in
-                  Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n, i, vo, maybe_previous))
+                  Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n, i, vo, maybe_previous, lease_expire_waiters))
                 end
               else
                 begin
 	              if i' > i 
                   then 
                     let cu_pred = S.get_catchup_start_i constants.store in
+                    Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
                     Fsm.return( Slave_discovered_other_master(source, cu_pred, n', i') )   
                   else
                     begin
@@ -314,6 +316,7 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
                                   me (Sn.string_of pi) (Sn.string_of i)
                           end
                     end >>= fun _ ->
+                  Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
 	              let reply = Accepted(n,i') in
 	              Logger.debug_f_ "%s: replying with %S" me (string_of reply) >>= fun () ->
 	              send reply me source >>= fun () -> 
@@ -332,6 +335,7 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
                       (Sn.string_of i) (Sn.string_of i')  
                   )
                 in
+                Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
                 let cu_pred = S.get_catchup_start_i constants.store in
                 let new_state = (source, cu_pred, n', i') in 
                 Fsm.return ~sides:[log_e] (Slave_discovered_other_master(new_state) ) 
@@ -341,10 +345,11 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
 	                Printf.sprintf "slave_wait_for_accept: dropping old accept: %s " (string_of msg) 
                   )
 	            in
-	            Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n,i,vo, maybe_previous))
+	            Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n,i,vo, maybe_previous, lease_expire_waiters))
 	        end
 	      | Accept (n',i',v) ->
 	          begin
+                Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
                 let log_e = ELog (fun () ->
                   Printf.sprintf "slave_wait_for_accept : foreign(%s,%s) <> (%s,%s) sending fake prepare" 
 		            (Sn.string_of n') (Sn.string_of i') (Sn.string_of n) (Sn.string_of i) 
@@ -357,7 +362,7 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
           | Accepted _ ->
 	          begin
                 let log_e = ELog (fun () -> "dropping : " ^ (string_of msg)) in
-	            Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n,i,vo, maybe_previous))
+	            Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n,i,vo, maybe_previous, lease_expire_waiters))
 	          end
       end
     | ElectionTimeout n' 
@@ -370,7 +375,7 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
         let log_e = ELog (fun () -> 
           Printf.sprintf "slave_wait_for_accept: Ingoring old lease expiration (n'=%s n=%s)" ns' ns) 
         in
-        Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n,i,vo, maybe_previous))
+        Fsm.return ~sides:[log_e] (Slave_wait_for_accept (n,i,vo, maybe_previous, lease_expire_waiters))
         end
       else
         let elections_needed,_ = time_for_elections constants n' maybe_previous in
@@ -397,13 +402,14 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
             end
             >>= fun (el_i, el_up) ->
             *)
+            Multi_paxos.safe_wakeup_all () lease_expire_waiters >>= fun () ->
             let new_n = update_n constants n in
             Fsm.return ~sides:[log_e] (Election_suggest (new_n, el_i, el_up))
           end
         else
           begin
             start_lease_expiration_thread constants n constants.lease_expiration >>= fun () ->
-            Fsm.return (Slave_wait_for_accept (n,i,vo, maybe_previous))
+            Fsm.return (Slave_wait_for_accept (n,i,vo, maybe_previous, lease_expire_waiters))
           end
             
     | FromClient msg -> paxos_fatal constants.me "slave_wait_for_accept only registered for FromNode"
@@ -411,16 +417,16 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
     | Quiesce (sleep,awake) ->
         begin
           handle_quiesce_request (module S) constants.store sleep awake >>= fun () ->
-          Fsm.return (Slave_wait_for_accept (n,i, vo, maybe_previous))
+          Fsm.return (Slave_wait_for_accept (n,i, vo, maybe_previous, lease_expire_waiters))
         end
     | Unquiesce ->
         begin
           handle_unquiesce_request constants n >>= fun (store_i, store_vo) ->
-          Fsm.return (Slave_wait_for_accept (n,i, vo, maybe_previous))
+          Fsm.return (Slave_wait_for_accept (n,i, vo, maybe_previous, lease_expire_waiters))
         end
     | DropMaster (sleep, awake) ->
         Multi_paxos.safe_wakeup sleep awake () >>= fun () ->
-        Fsm.return (Slave_wait_for_accept (n, i, vo, maybe_previous))
+        Fsm.return (Slave_wait_for_accept (n, i, vo, maybe_previous, lease_expire_waiters))
 
 (* a pending slave that discovered another master has to do
    catchup and then go to steady state or wait_for_accept
@@ -463,7 +469,7 @@ let slave_discovered_other_master (type s) constants state () =
                   | Some u -> Some ( u, current_i' )
               end in
             start_election_timeout constants future_n >>= fun () ->
-            Fsm.return (Slave_wait_for_accept (future_n', current_i', None, vo))
+            Fsm.return (Slave_wait_for_accept (future_n', current_i', None, vo, []))
       end
     end
   else if current_i = future_i then
@@ -476,7 +482,7 @@ let slave_discovered_other_master (type s) constants state () =
       let log_e = ELog (fun () ->
         Printf.sprintf "slave_discovered_other_master: no need for catchup %s" master )
       in  
-      Fsm.return ~sides:[send_e;start_e;log_e] (Slave_wait_for_accept (future_n, current_i, None, last))
+      Fsm.return ~sides:[send_e;start_e;log_e] (Slave_wait_for_accept (future_n, current_i, None, last, []))
     end
   else
     begin
@@ -493,7 +499,7 @@ let slave_discovered_other_master (type s) constants state () =
           "slave_discovered_other_master: my i is bigger then theirs ; back to election"
       else
         begin
-          Slave_wait_for_accept( future_n, next_i, None, None ),
+          Slave_wait_for_accept( future_n, next_i, None, None, []),
           "slave_discovered_other_master: forced slave, back to slave mode" 
         end
       in
