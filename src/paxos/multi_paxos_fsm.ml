@@ -182,16 +182,13 @@ let promises_check_done constants state () =
   let me = constants.me in
   let nnones, v_s = v_lims in 
   let bv,bf,number_of_updates =
-  begin 
-    match v_s with 
-      | [] ->  (Value.create_master_value (me, 0L), 0, 1)
-      | hd::tl -> 
-        let bv, bf = hd in
-        if Value.is_master_set bv 
-        then (Value.create_master_value (me, 0L), bf, 1)
-        else bv, bf , List.length (Value.updates_from_value bv)
-         
-  end in 
+    begin
+      match v_s with
+        | [] ->  (Value.create_master_value (me, 0L), 0, 1)
+        | hd::tl ->
+            let bv, bf = hd in
+            bv, bf , List.length (Value.updates_from_value bv)
+    end in
   let nnodes = List.length constants.others + 1 in
   let needed = constants.quorum_function nnodes in
   let nvoted = List.length who_voted in
