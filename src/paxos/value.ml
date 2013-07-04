@@ -33,6 +33,10 @@ let is_master_set  = function
   | Vm _ ->  true
   | _    -> false
 
+let is_other_master_set m = function
+  | Vm (m',_) when m' <> m -> true
+  | _ -> false
+
 let is_synced = function 
   | Vm _ -> false
   | Vc (_,s) -> s

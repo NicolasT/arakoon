@@ -483,7 +483,15 @@ let accepteds_check_done constants state () =
         )
       in
       let sides = [log_e] in
-      Fsm.return ~sides (Master_consensus (mo,v,n,i, lease_expire_waiters))
+      if Value.is_other_master_set constants.me v
+      then
+        let log_e = ELog (fun () ->
+          "accepteds_check_done :: just learned about another master, give it a chance to do it's thing") in
+        let con_e = EConsensus([], v,n,i) in
+        let sides = log_e :: con_e :: sides in
+        Fsm.return ~sides (Slave_fake_prepare (n, i))
+      else
+        Fsm.return ~sides (Master_consensus (mo,v,n,i, lease_expire_waiters))
     end
   else
     Fsm.return (Wait_for_accepteds state)

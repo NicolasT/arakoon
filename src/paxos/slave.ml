@@ -286,7 +286,20 @@ let slave_wait_for_accept (type s) constants (n,i, vo, maybe_previous) event =
 	                  constants.on_accept (v,n,i') >>= fun () ->
                       begin
 		                if Value.is_master_set v 
-		                then start_lease_expiration_thread constants n constants.lease_expiration 
+		                then
+                          let lease_expiration =
+                            if Value.is_other_master_set me v
+                            then
+                              constants.lease_expiration
+                            else
+                              (* ok, another node just pushed me a masterset for myself
+                                 this means there was a fight, and I can't be sure untill when
+                                 other nodes will respect my authority. re-run for master as
+                                 quickly as possible!
+                              *)
+                              0
+                          in
+                          start_lease_expiration_thread constants n lease_expiration
 		                else Lwt.return ()
 	                  end >>= fun () ->
                       match maybe_previous with
