@@ -1,0 +1,3 @@
+begin library "arakoon-tlog"
+  files = [ ]
+end

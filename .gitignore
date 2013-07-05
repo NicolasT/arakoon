@@ -1,0 +1,7 @@
+arakoon
+!src/arakoon
+
+_obuild/
+ocp-build.root
+ocp-build.root.old
+ocp-build.root.old.old

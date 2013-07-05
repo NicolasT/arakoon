@@ -1,0 +1,12 @@
+begin program "arakoon"
+  use "threads"
+
+  files = [ "version.ml" (ocp2ml)
+          ]
+
+  requires = [ "arakoon-core"
+               "arakoon-tlog"
+               "core"
+               "threads"
+             ]
+end
