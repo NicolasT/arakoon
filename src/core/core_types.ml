@@ -2,7 +2,7 @@ open Core.Std
 
 module Node = struct
     type t = string
-           with sexp, compare
+    with sexp, compare
 end
 
 module I : sig
@@ -17,7 +17,7 @@ module I : sig
     val succ : t -> t
 end = struct
     type t = int
-           with sexp, compare
+    with sexp, compare
 
     let i0 = 0
     let succ = Pervasives.succ
@@ -32,15 +32,15 @@ end
 
 module Message = struct
     type t = Nop
-           with sexp, variants, compare
+    with sexp, variants, compare
 end
 
 module Event = struct
     type t = Message of Node.t * Message.t
-           with sexp, variants, compare
+    with sexp, variants, compare
 end
 
 module Command = struct
     type t = Log of string
-           with sexp, variants, compare
+    with sexp, variants, compare
 end

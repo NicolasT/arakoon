@@ -20,6 +20,6 @@ end
 type t = Master of Master.t
        | Slave of Slave.t
        | Candidate of Candidate.t
-       with sexp, variants, compare
+with sexp, variants, compare
 
 let state0 = Slave { Slave.i = I.i0 }
