@@ -23,13 +23,14 @@ module Config : sig
 end
 
 module Message : sig
-    type t = Nop
+    type t
 
     val sexp_of_t : t -> Sexp.t
 end
 
 module Event : sig
     type t = Message of Node.t * Message.t
+           | ElectionTimeout of float
 
     val sexp_of_t : t -> Sexp.t
 end

@@ -11,7 +11,7 @@ let config =
 let main () =
     let state = State.state0 in
     dump "Pre" (State.sexp_of_t state);
-    let event = Event.Message ("node0", Message.Nop) in
+    let event = Event.ElectionTimeout 10.0 in
     dump "Event" (Event.sexp_of_t event);
     let (state', commands) = Core_api.State.handle config state event in
     dump "Post" (State.sexp_of_t state');
