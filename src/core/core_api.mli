@@ -2,14 +2,21 @@ open Core.Std
 
 module Node : sig
     type t = string
+    val compare : t -> t -> int
 end
 
 module Config : sig
-    type t = { nodes : Node.t Bag.t
+    module NodeSet : sig
+        type t
+
+        val of_list : Node.t list -> t
+    end
+
+    type t = { nodes : NodeSet.t
              }
 
     module Fields : sig
-        val create : nodes:Node.t Bag.t -> t
+        val create : nodes:NodeSet.t -> t
     end
 
     val sexp_of_t : t -> Sexp.t

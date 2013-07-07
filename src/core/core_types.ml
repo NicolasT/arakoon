@@ -24,7 +24,9 @@ end = struct
 end
 
 module Config = struct
-    type t = { nodes : Node.t Bag.t
+    module NodeSet = Set.Make(Node)
+
+    type t = { nodes : NodeSet.t
              } with sexp, fields
 end
 

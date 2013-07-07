@@ -4,8 +4,8 @@ open Core_api
 
 let dump p s = Printf.printf "%s: %s\n" p (Sexp.to_string_hum s)
 
-let config () =
-    let nodes = Bag.create () in
+let config =
+    let nodes = Config.NodeSet.of_list ["node0"] in
     Config.Fields.create nodes
 
 let main () =
@@ -13,7 +13,7 @@ let main () =
     dump "Pre" (State.sexp_of_t state);
     let event = Event.Message ("node0", Message.Nop) in
     dump "Event" (Event.sexp_of_t event);
-    let (state', commands) = Core_api.State.handle (config ()) state event in
+    let (state', commands) = Core_api.State.handle config state event in
     dump "Post" (State.sexp_of_t state');
     dump "Commands" ((<:sexp_of< Command.t list >>) commands)
 ;;
