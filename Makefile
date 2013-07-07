@@ -1,16 +1,15 @@
-OCP_BUILD ?= ocp-build
+OCAMLBUILD ?= ocamlbuild
 
-default: arakoon
+default: byte
 
-arakoon:
-	@rm -f $@
-	@$(OCP_BUILD) $@
-	@ln -s _obuild/$@/$@.asm $@
+byte:
+	@$(OCAMLBUILD) -use-ocamlfind test.byte
+.PHONY: byte
 
-.PHONY: arakoon
+native:
+	@$(OCAMLBUILD) -use-ocamlfind test.native
+.PHONY: native
 
 clean:
-	@rm -f arakoon
-	@$(OCP_BUILD) clean
-
+	@$(OCAMLBUILD) -clean
 .PHONY: clean

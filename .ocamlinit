@@ -1,0 +1,18 @@
+#use "topfind"
+#camlp4o
+#thread
+#require "core.top";;
+#require "async";;
+open Core.Std
+open Async.Std
+
+#directory "_build/src/core";;
+#load "core_types.cmo";;
+#load "core_state.cmo";;
+#load "core_master.cmo";;
+#load "core_slave.cmo";;
+#load "core_candidate.cmo";;
+#load "core_dispatch.cmo";;
+#load "core_api.cmo";;
+
+open Core_api

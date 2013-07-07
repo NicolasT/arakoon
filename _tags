@@ -1,0 +1,12 @@
+true: annot
+true: thread
+
+true: warn_error_A
+
+"src/core": include
+
+true: package(core)
+true: package(sexplib)
+
+"test.ml": syntax(camlp4o), package(sexplib.syntax)
+"src/core/core_state.ml" or "src/core/core_types.ml": syntax(camlp4o), package(sexplib.syntax), package(fieldslib.syntax), package(variantslib.syntax), package(comparelib.syntax)
