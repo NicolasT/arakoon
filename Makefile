@@ -1,4 +1,5 @@
 OCAMLBUILD ?= ocamlbuild
+OCP_INDENT ?= ocp-indent
 
 default: byte
 
@@ -11,8 +12,8 @@ native:
 .PHONY: native
 
 indent:
-	@which ocp-indent > /dev/null
-	@find . \( -name \*.ml -o -name \*.mli \) -not -path ./_build/\* -exec ocp-indent -i '{}' \;
+	@which $(OCP_INDENT) > /dev/null
+	@find . \( -name \*.ml -o -name \*.mli \) -not -path ./_build/\* -exec $(OCP_INDENT) -i '{}' \;
 .PHONY: indent
 
 clean:
