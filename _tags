@@ -1,6 +1,7 @@
 true: annot
 true: thread
 true: warn_error_A
+true: warn_error_X
 
 "src/core": include
 
