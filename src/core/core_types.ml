@@ -16,11 +16,11 @@ module I : sig
     val i0 : t
     val succ : t -> t
 end = struct
-    type t = I of int
+    type t = int
            with sexp, compare
 
-    let i0 = I 0
-    let succ (I i) = I (i + 1)
+    let i0 = 0
+    let succ = Pervasives.succ
 end
 
 module Config = struct
