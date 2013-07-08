@@ -37,13 +37,11 @@ let handle_accepted config state from m =
 let handle_nop config state from =
     (Slave state, [])
 
-let handle_message config state from = function
-  | Prepare m -> handle_prepare config state from m
-  | Promise m -> handle_promise config state from m
-  | Accept m -> handle_accept config state from m
-  | Accepted m -> handle_accepted config state from m
-  | Nop -> handle_nop config state from
-
 let handle config state = function
   | ElectionTimeout _ -> handle_election_timeout config state
-  | Message (f, m) -> handle_message config state f m
+  | Message (from, m) -> match m with
+    | Prepare m -> handle_prepare config state from m
+    | Promise m -> handle_promise config state from m
+    | Accept m -> handle_accept config state from m
+    | Accepted m -> handle_accepted config state from m
+    | Nop -> handle_nop config state from
