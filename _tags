@@ -10,3 +10,4 @@ true: package(sexplib)
 
 "test.ml": syntax(camlp4o), package(sexplib.syntax)
 "src/core/core_state.ml" or "src/core/core_types.ml": syntax(camlp4o), package(sexplib.syntax), package(fieldslib.syntax), package(variantslib.syntax), package(comparelib.syntax)
+"src/core/core_slave.ml": syntax(camlp4o), package(custom_printf.syntax)
