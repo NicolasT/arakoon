@@ -10,10 +10,9 @@ type t = Slave.t
 
 let handle_election_timeout config state =
     let next_n = N.succ state.n in
-    let msg = prepare next_n in
     let new_state = Candidate.Fields.create ~n:next_n ~i:state.i
     and commands = [ Log "Transition to Candidate"
-                   ; Broadcast msg
+                   ; Broadcast (Message.prepare next_n)
                    ] in
     (Candidate new_state, commands)
 
