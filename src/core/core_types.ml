@@ -13,6 +13,8 @@ module N : sig
     val sexp_of_t : t -> Sexp.t
     val t_of_sexp : Sexp.t -> t
 
+    val to_string : t -> string
+
     val n0 : t
     val succ : t -> t
 end = struct
@@ -21,6 +23,7 @@ end = struct
 
     let n0 = 0
     let succ = Pervasives.succ
+    let to_string = string_of_int
 end
 
 module I : sig
@@ -31,6 +34,8 @@ module I : sig
     val sexp_of_t : t -> Sexp.t
     val t_of_sexp : Sexp.t -> t
 
+    val to_string : t -> string
+
     val i0 : t
     val succ : t -> t
 end = struct
@@ -39,6 +44,7 @@ end = struct
 
     let i0 = 0
     let succ = Pervasives.succ
+    let to_string = string_of_int
 end
 
 module V = struct
