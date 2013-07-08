@@ -13,10 +13,11 @@ module Config : sig
     end
 
     type t = { nodes : NodeSet.t
+             ; me : Node.t
              }
 
     module Fields : sig
-        val create : nodes:NodeSet.t -> t
+        val create : nodes:NodeSet.t -> me:Node.t -> t
     end
 
     val sexp_of_t : t -> Sexp.t

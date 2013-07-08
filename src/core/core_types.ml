@@ -57,6 +57,7 @@ module Config = struct
     module NodeSet = Set.Make(Node)
 
     type t = { nodes : NodeSet.t
+             ; me : Node.t
              } with sexp, fields
 end
 

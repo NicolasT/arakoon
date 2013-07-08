@@ -5,8 +5,9 @@ open Core_api
 let dump p s = Printf.printf "%s: %s\n" p (Sexp.to_string_hum s)
 
 let config =
-    let nodes = Config.NodeSet.of_list ["node0"] in
-    Config.Fields.create nodes
+    let nodes = Config.NodeSet.of_list ["node0"]
+    and me = "node0" in
+    Config.Fields.create ~nodes ~me
 
 let main () =
     let state = State.state0 in
