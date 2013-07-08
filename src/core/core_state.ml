@@ -30,6 +30,6 @@ let state0 =
     Slave t
 
 let tag_of_t = function
- | Master _ -> `Master
- | Slave _ -> `Slave
- | Candidate _ -> `Candidate
+  | Master _ -> `Master
+  | Slave _ -> `Slave
+  | Candidate _ -> `Candidate
