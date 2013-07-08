@@ -6,9 +6,13 @@ open Core_types.Message
 open Core_state
 open Core_state.Slave
 
-type t = Slave.t
+open Core_signatures
 
-let handle_election_timeout config state =
+type t = Slave.t
+type timeout_handler = Config.t -> t -> float -> handler_result
+type 'a message_handler = Config.t -> t -> Node.t -> 'a -> handler_result
+
+let handle_election_timeout config state _ =
     let next_n = N.succ state.n in
     let new_state = Candidate.Fields.create ~n:next_n ~i:state.i
     and commands = [ Log "Transition to Candidate"
@@ -33,14 +37,5 @@ let handle_accepted config state from m =
     let s = Printf.sprintf "Ignoring Accepted from %S in Slave state" from in
     (Slave state, [Log s])
 
-let handle_nop config state from =
+let handle_nop config state from _ =
     (Slave state, [])
-
-let handle config state = function
-  | ElectionTimeout _ -> handle_election_timeout config state
-  | Message (from, m) -> match m with
-    | Prepare m -> handle_prepare config state from m
-    | Promise m -> handle_promise config state from m
-    | Accept m -> handle_accept config state from m
-    | Accepted m -> handle_accepted config state from m
-    | Nop -> handle_nop config state from

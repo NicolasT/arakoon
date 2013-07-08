@@ -83,8 +83,11 @@ module Message = struct
                  ; v : V.t
                  } with sexp, fields, compare
     end
+    module Nop = struct
+        type t with sexp, compare
+    end
 
-    type t = Nop
+    type t = Nop of Nop.t
            | Prepare of Prepare.t
            | Promise of Promise.t
            | Accept of Accept.t
