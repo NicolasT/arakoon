@@ -28,3 +28,8 @@ with sexp, variants, compare
 let state0 =
     let t = Slave.Fields.create ~n:N.n0 ~i:I.i0 in
     Slave t
+
+let tag_of_t = function
+ | Master _ -> `Master
+ | Slave _ -> `Slave
+ | Candidate _ -> `Candidate

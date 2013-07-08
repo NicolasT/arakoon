@@ -45,6 +45,7 @@ module State : sig
     type t
 
     val sexp_of_t : t -> Sexp.t
+    val tag_of_t : t -> [> `Candidate | `Master | `Slave ]
 
     val state0 : t
     val handle : Config.t -> t -> Event.t -> (t * Command.t list)

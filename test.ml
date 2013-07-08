@@ -15,7 +15,13 @@ let main () =
     dump "Event" (Event.sexp_of_t event);
     let (state', commands) = Core_api.State.handle config state event in
     dump "Post" (State.sexp_of_t state');
-    dump "Commands" ((<:sexp_of< Command.t list >>) commands)
+    dump "Commands" ((<:sexp_of< Command.t list >>) commands);
+    let sn = match State.tag_of_t state' with
+      | `Master -> "Master"
+      | `Slave -> "Slave"
+      | `Candidate -> "Candidate"
+    in
+    Printf.printf "Current state: %s\n" sn
 ;;
 
 main ()

@@ -8,6 +8,7 @@ module State = struct
     type t = Core_state.t
 
     let sexp_of_t = Core_state.sexp_of_t
+    let tag_of_t = Core_state.tag_of_t
 
     let handle = Core_dispatch.handle
 
