@@ -83,8 +83,19 @@ module Message = struct
                  ; v : V.t
                  } with sexp, fields, compare
     end
-    module Nop = struct
-        type t with sexp, compare
+    module Nop : sig
+        type t
+
+        val sexp_of_t : t -> Sexp.t
+        val t_of_sexp : Sexp.t -> t
+        val compare : t -> t -> int
+
+        val singleton : t
+    end = struct
+        type t = unit
+        with sexp, compare
+
+        let singleton = ()
     end
 
     type t = Nop of Nop.t
@@ -94,6 +105,7 @@ module Message = struct
            | Accepted of Accepted.t
     with sexp, variants, compare
 
+    let nop = Nop Nop.singleton
     let prepare ~n = Prepare (Prepare.Fields.create ~n)
     let promise ~n ~i ~v = Promise (Promise.Fields.create ~n ~i ~v)
     let accept ~n ~i ~v = Accept (Accept.Fields.create ~n ~i ~v)
