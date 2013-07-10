@@ -3,6 +3,9 @@ open Core.Std
 module Node : sig
     type t = string
     val compare : t -> t -> int
+
+    include Binable with type t :=t
+    include Sexpable with type t := t
 end
 
 module Config : sig
@@ -25,9 +28,9 @@ end
 
 module Message : sig
     type t
-
-    val sexp_of_t : t -> Sexp.t
-end
+    include Binable with type t := t
+    include Sexpable with type t := t
+end with type t = Core_types.Message.t
 
 module Event : sig
     type t = Message of Node.t * Message.t
@@ -37,7 +40,10 @@ module Event : sig
 end
 
 module Command : sig
-    type t
+    type t = Log of string
+           | Broadcast of Message.t
+           | Send of Node.t * Message.t
+           | ResetElectionTimeout of float
 
     val sexp_of_t : t -> Sexp.t
 end

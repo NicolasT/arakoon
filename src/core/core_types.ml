@@ -2,7 +2,7 @@ open Core.Std
 
 module Node = struct
     type t = string
-    with sexp, compare
+    with sexp, compare, bin_io
 end
 
 module N : sig
@@ -10,8 +10,8 @@ module N : sig
 
     val compare : t -> t -> int
 
-    val sexp_of_t : t -> Sexp.t
-    val t_of_sexp : Sexp.t -> t
+    include Binable with type t := t
+    include Sexpable with type t := t
 
     val to_string : t -> string
 
@@ -19,7 +19,7 @@ module N : sig
     val succ : t -> t
 end = struct
     type t = int
-    with sexp, compare
+    with sexp, compare, bin_io
 
     let n0 = 0
     let succ = Pervasives.succ
@@ -31,8 +31,8 @@ module I : sig
 
     val compare : t -> t -> int
 
-    val sexp_of_t : t -> Sexp.t
-    val t_of_sexp : Sexp.t -> t
+    include Binable with type t := t
+    include Sexpable with type t := t
 
     val to_string : t -> string
 
@@ -40,7 +40,7 @@ module I : sig
     val succ : t -> t
 end = struct
     type t = int
-    with sexp, compare
+    with sexp, compare, bin_io
 
     let i0 = 0
     let succ = Pervasives.succ
@@ -50,7 +50,7 @@ end
 module V = struct
     type t = User of string
            | MasterSet of Node.t
-    with sexp, variants, compare
+    with sexp, variants, compare, bin_io
 end
 
 module Config = struct
@@ -64,37 +64,38 @@ end
 module Message = struct
     module Prepare = struct
         type t = { n : N.t
-                 } with sexp, fields, compare
+                 } with sexp, fields, compare, bin_io
     end
     module Promise = struct
         type t = { n : N.t
                  ; i : I.t
                  ; v : V.t
-                 } with sexp, fields, compare
+                 } with sexp, fields, compare, bin_io
     end
     module Accept = struct
         type t = { n : N.t
                  ; i : I.t
                  ; v : V.t
-                 } with sexp, fields, compare
+                 } with sexp, fields, compare, bin_io
     end
     module Accepted = struct
         type t = { n : N.t
                  ; i : I.t
                  ; v : V.t
-                 } with sexp, fields, compare
+                 } with sexp, fields, compare, bin_io
     end
     module Nop : sig
         type t
 
-        val sexp_of_t : t -> Sexp.t
-        val t_of_sexp : Sexp.t -> t
+        include Binable with type t := t
+        include Sexpable with type t := t
+
         val compare : t -> t -> int
 
         val singleton : t
     end = struct
         type t = unit
-        with sexp, compare
+        with sexp, compare, bin_io
 
         let singleton = ()
     end
@@ -104,7 +105,7 @@ module Message = struct
            | Promise of Promise.t
            | Accept of Accept.t
            | Accepted of Accepted.t
-    with sexp, variants, compare
+    with sexp, variants, compare, bin_io
 
     let nop = Nop Nop.singleton
     let prepare ~n = Prepare (Prepare.Fields.create ~n)

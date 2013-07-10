@@ -1,13 +1,25 @@
 true: annot
+true: debug
 true: thread
 true: warn_error_A
 true: warn_error_X
 
+"src": include
 "src/core": include
+"src/plumbing": include
 
 true: package(core)
+true: package(async)
 true: package(sexplib)
 
 "test.ml": syntax(camlp4o), package(sexplib.syntax)
 "src/core/core_state.ml" or "src/core/core_types.ml": syntax(camlp4o), package(sexplib.syntax), package(fieldslib.syntax), package(variantslib.syntax), package(comparelib.syntax)
+"src/core/core_types.ml": package(bin_prot.syntax)
 "src/core/core_slave.ml": syntax(camlp4o), package(custom_printf.syntax)
+
+"src/plumbing/plumbing_node_server.ml": syntax(camlp4o), package(bin_prot.syntax), package(sexplib.syntax)
+"src/plumbing/plumbing_loop.ml": syntax(camlp4o), package(sexplib.syntax), package(fieldslib.syntax), package(comparelib.syntax), package(custom_printf.syntax)
+
+"sender.ml": syntax(camlp4o), package(bin_prot.syntax), package(sexplib.syntax)
+"src/arakoon.ml": syntax(camlp4o), package(custom_printf.syntax), package(sexplib.syntax)
+"connect.ml": syntax(camlp4o), package(custom_printf.syntax), package(sexplib.syntax)
