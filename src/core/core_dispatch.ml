@@ -4,7 +4,7 @@ open Core_types.Message
 open Core_signatures
 
 let dispatch (type t) (module M : HANDLER with type t = t) config (state:t) = function
-  | ElectionTimeout f -> M.handle_election_timeout config state f
+  | ElectionTimeout (g, e) -> M.handle_election_timeout config state g e
   | Message (from, m) -> match m with
     | Prepare m' -> M.handle_prepare config state from m'
     | Promise m' -> M.handle_promise config state from m'

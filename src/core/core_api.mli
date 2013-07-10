@@ -17,14 +17,20 @@ module Config : sig
 
     type t = { nodes : NodeSet.t
              ; me : Node.t
+             ; election_timeout : Time.Span.t
+             ; lease_extension_timeout : Time.Span.t
              }
 
     module Fields : sig
-        val create : nodes:NodeSet.t -> me:Node.t -> t
+        val create :  nodes:NodeSet.t
+                   -> me:Node.t
+                   -> election_timeout:Time.Span.t
+                   -> lease_extension_timeout:Time.Span.t
+                   -> t
     end
 
     val sexp_of_t : t -> Sexp.t
-end
+end with type t = Core_types.Config.t
 
 module Message : sig
     type t
@@ -34,7 +40,7 @@ end with type t = Core_types.Message.t
 
 module Event : sig
     type t = Message of Node.t * Message.t
-           | ElectionTimeout of float
+           | ElectionTimeout of (Time.Span.t * Time.Span.t)
 
     val sexp_of_t : t -> Sexp.t
 end
@@ -43,7 +49,7 @@ module Command : sig
     type t = Log of string
            | Broadcast of Message.t
            | Send of Node.t * Message.t
-           | ResetElectionTimeout of float
+           | ResetElectionTimeout of Time.Span.t
 
     val sexp_of_t : t -> Sexp.t
 end

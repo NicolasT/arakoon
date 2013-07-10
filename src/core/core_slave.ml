@@ -1,3 +1,5 @@
+open Core.Std
+
 open Core_types
 open Core_types.Event
 open Core_types.Command
@@ -9,14 +11,15 @@ open Core_state.Slave
 open Core_signatures
 
 type t = Slave.t
-type timeout_handler = Config.t -> t -> float -> handler_result
+type timeout_handler = Config.t -> t -> Time.Span.t -> Time.Span.t -> handler_result
 type 'a message_handler = Config.t -> t -> Node.t -> 'a -> handler_result
 
-let handle_election_timeout config state _ =
+let handle_election_timeout config state _ _ =
     let next_n = N.succ state.n in
     let new_state = Candidate.Fields.create ~n:next_n ~i:state.i
     and commands = [ Log "Transition to Candidate"
                    ; Broadcast (Message.prepare next_n)
+                   ; ResetElectionTimeout config.Config.election_timeout
                    ] in
     (Candidate new_state, commands)
 

@@ -58,6 +58,8 @@ module Config = struct
 
     type t = { nodes : NodeSet.t
              ; me : Node.t
+             ; election_timeout : Time.Span.t
+             ; lease_extension_timeout : Time.Span.t
              } with sexp, fields
 end
 
@@ -116,7 +118,7 @@ end
 
 module Event = struct
     type t = Message of Node.t * Message.t
-           | ElectionTimeout of float
+           | ElectionTimeout of (Time.Span.t * Time.Span.t)
     with sexp, variants, compare
 end
 
@@ -124,6 +126,6 @@ module Command = struct
     type t = Log of string
            | Broadcast of Message.t
            | Send of Node.t * Message.t
-           | ResetElectionTimeout of float
+           | ResetElectionTimeout of Time.Span.t
     with sexp, variants, compare
 end

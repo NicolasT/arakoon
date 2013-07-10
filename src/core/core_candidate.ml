@@ -1,3 +1,5 @@
+open Core.Std
+
 open Core_state
 open Core_state.Candidate
 open Core_types
@@ -6,14 +8,14 @@ open Core_signatures
 open Core_types.Command
 
 type t = Candidate.t
-type timeout_handler = Config.t -> t -> float -> handler_result
+type timeout_handler = Config.t -> t -> Time.Span.t -> Time.Span.t -> handler_result
 type 'a message_handler = Config.t -> t -> Node.t -> 'a -> handler_result
 
-let handle_election_timeout _ s _ =
+let handle_election_timeout c s _ _ =
     (* TODO *)
     let s' = Candidate s
     and cs = [ Log "Remaining in candidate state"
-             ; ResetElectionTimeout 10.0
+             ; ResetElectionTimeout (c.Config.election_timeout)
              ]
     in (s', cs)
 
